@@ -1034,6 +1034,12 @@ input:focus-visible,
   box-shadow: 0 0 0 4px #000;
 }
 
+html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus,
+html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .icon-button {
   width: 44px;
   height: 44px;

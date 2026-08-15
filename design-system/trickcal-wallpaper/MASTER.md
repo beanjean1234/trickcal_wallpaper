@@ -83,7 +83,8 @@ Do not use colored accents outside the selected-image checkbox. Do not use decor
 - Maintain at least 4.5:1 text contrast.
 - Keep labels associated with every input.
 - Give icon-only buttons an accessible name.
-- Keep visible `:focus-visible` treatment.
+- Keep visible `:focus-visible` treatment for keyboard input and in the placement editor.
+- Suppress pointer-generated focus chrome only on live wallpaper objects so clicking to drag does not leave a desktop outline.
 - Respect `prefers-reduced-motion`.
 - Animations are limited to a 160ms opacity/4px panel entrance.
 

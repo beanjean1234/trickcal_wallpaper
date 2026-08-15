@@ -42,6 +42,13 @@ export function makeDraggableGroup(
   let tiltFrame = null;
   let topLayer = 20;
 
+  const setPointerInput = () => {
+    document.documentElement.classList.add("is-pointer-input");
+  };
+  const setKeyboardInput = () => {
+    document.documentElement.classList.remove("is-pointer-input");
+  };
+
   const renderTilt = () => {
     tiltFrame = null;
     const elementRects = elements.map((element) => [
@@ -188,6 +195,8 @@ export function makeDraggableGroup(
     pointerActive = true;
     scheduleTilt();
   }, { passive: true });
+  window.addEventListener("pointerdown", setPointerInput, { capture: true, passive: true });
+  window.addEventListener("keydown", setKeyboardInput, { capture: true });
   document.documentElement.addEventListener("pointerleave", () => {
     pointerActive = false;
     scheduleTilt();
