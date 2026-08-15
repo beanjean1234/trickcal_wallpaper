@@ -1,0 +1,17 @@
+{
+  "name": "liquid-glass-magnifier",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:assets": "node scripts/generate-asset-catalog.mjs",
+    "predev": "npm run generate:assets",
+    "dev": "node server.mjs",
+    "prestart": "npm run generate:assets",
+    "start": "node server.mjs",
+    "check": "node --check js/main.js && node --check js/background.js && node --check js/scene.js && node --check js/interaction.js && node --check js/layout.js && node --check js/settings.js && node --check controller/controller.mjs && node --check server.mjs",
+    "build:wallpaper": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-wallpaper.ps1",
+    "build:controller": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-controller.ps1",
+    "build:all": "npm run build:wallpaper && npm run build:controller"
+  }
+}

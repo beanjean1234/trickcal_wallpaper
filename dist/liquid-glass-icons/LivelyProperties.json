@@ -1,0 +1,43 @@
+{
+  "openPlacementEditor": {
+    "text": "오브젝트 관리 및 배치",
+    "type": "button",
+    "value": true
+  },
+  "specularHighlight": {
+    "max": 300,
+    "min": 0,
+    "step": 5,
+    "text": "Specular highlight (%)",
+    "type": "slider",
+    "help": "Controls the strength of the white front-edge highlight.",
+    "value": 300
+  },
+  "specularAngle": {
+    "max": 180,
+    "min": -180,
+    "step": 1,
+    "text": "Specular angle",
+    "type": "slider",
+    "help": "Rotates the front-edge highlight around every glass object.",
+    "value": -60
+  },
+  "shadowOpacity": {
+    "max": 60,
+    "min": 0,
+    "step": 1,
+    "text": "Shadow opacity (%)",
+    "type": "slider",
+    "help": "Controls the opacity of the shadow behind each object.",
+    "value": 20
+  },
+  "shadowBlur": {
+    "max": 90,
+    "min": 0,
+    "step": 1,
+    "text": "Shadow blur (px)",
+    "type": "slider",
+    "help": "Controls the blur radius of the shadow behind each object.",
+    "value": 48
+  }
+}

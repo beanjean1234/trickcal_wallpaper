@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#eaf8fd" />
+    <title>Liquid Glass Icons</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <canvas class="background-canvas" id="background-canvas" aria-hidden="true"></canvas>
+
+    <main class="study" id="study">
+      <header class="placement-toolbar" id="placement-toolbar" hidden>
+        <div class="placement-toolbar__identity">
+          <span class="placement-toolbar__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2.75 8.75 6h2.1v4.85H6V8.75L2.75 12 6 15.25v-2.1h4.85V18H8.75L12 21.25 15.25 18h-2.1v-4.85H18v2.1L21.25 12 18 8.75v2.1h-4.85V6h2.1L12 2.75Z" />
+            </svg>
+          </span>
+          <div>
+            <h1>오브젝트 관리</h1>
+          </div>
+        </div>
+
+        <p class="placement-toolbar__hint">이미지를 체크해 추가·해제하고, 오브젝트를 드래그해 배치하세요.</p>
+
+        <div class="placement-toolbar__actions">
+          <button class="ui-button ui-button--quiet" id="reset-layout" type="button">
+            초기 배치
+          </button>
+          <button class="ui-button ui-button--secondary" id="cancel-layout" type="button">
+            취소
+          </button>
+          <button class="ui-button ui-button--primary" id="save-layout" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9.55 16.15-3.7-3.7 1.4-1.4 2.3 2.3 7.2-7.2 1.4 1.4-8.6 8.6Z" />
+            </svg>
+            배치 저장
+          </button>
+        </div>
+      </header>
+
+      <aside class="object-manager" id="object-manager" aria-labelledby="object-manager-title" hidden>
+        <div class="object-manager__header">
+          <div>
+            <h2 id="object-manager-title">이미지 선택</h2>
+            <p>체크한 이미지를 배경화면에 배치합니다.</p>
+          </div>
+          <span class="object-manager__count" id="object-count">0</span>
+        </div>
+
+        <div class="asset-search">
+          <label class="sr-only" for="asset-search-input">이미지 이름 검색</label>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m20.3 19-4.6-4.6a7 7 0 1 0-1.4 1.4l4.6 4.6 1.4-1.4ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z" />
+          </svg>
+          <input
+            id="asset-search-input"
+            type="search"
+            placeholder="이미지 이름 검색"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+
+        <nav class="category-filter" id="category-filter" aria-label="이미지 폴더"></nav>
+
+        <ul class="asset-grid" id="asset-grid" aria-label="사용 가능한 이미지"></ul>
+        <p class="asset-grid__empty" id="asset-grid-empty" role="status">
+          이 폴더에는 이미지가 없습니다.
+        </p>
+      </aside>
+
+      <div class="placement-status" id="placement-status" hidden>
+        <span id="placement-status-text">0개 오브젝트 · 변경사항 없음</span>
+      </div>
+
+      <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+      <template id="magnifier-template">
+        <div
+          class="magnifier"
+          role="slider"
+          tabindex="0"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="50"
+        >
+          <span class="magnifier__wall magnifier__wall--top" aria-hidden="true"></span>
+          <span class="magnifier__wall magnifier__wall--right" aria-hidden="true"></span>
+          <span class="magnifier__wall magnifier__wall--bottom" aria-hidden="true"></span>
+          <span class="magnifier__wall magnifier__wall--left" aria-hidden="true"></span>
+          <div class="magnifier__back-shadow" aria-hidden="true"></div>
+          <div class="magnifier__content" aria-hidden="true">
+            <img class="magnifier__image" alt="" draggable="false" />
+          </div>
+          <div class="magnifier__front" aria-hidden="true">
+            <span class="magnifier__interactive-shine">
+              <span class="magnifier__shine-pattern"></span>
+              <span class="magnifier__shine-glow"></span>
+            </span>
+            <span class="magnifier__front-specular">
+              <span class="magnifier__front-specular-layer magnifier__front-specular-layer--1"></span>
+              <span class="magnifier__front-specular-layer magnifier__front-specular-layer--2"></span>
+              <span class="magnifier__front-specular-layer magnifier__front-specular-layer--3"></span>
+            </span>
+          </div>
+        </div>
+      </template>
+    </main>
+
+    <script src="./js/wallpaper.js"></script>
+  </body>
+</html>
