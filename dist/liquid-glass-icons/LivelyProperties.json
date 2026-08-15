@@ -2,7 +2,7 @@
   "openPlacementEditor": {
     "text": "오브젝트 관리 및 배치",
     "type": "button",
-    "value": true
+    "value": "브라우저에서 열기"
   },
   "specularHighlight": {
     "max": 300,
