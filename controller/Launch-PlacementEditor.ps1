@@ -1,6 +1,10 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$EdgePath,
+  [string]$BrowserPath,
+
+  [Parameter(Mandatory = $true)]
+  [ValidateSet("Google Chrome", "Microsoft Edge")]
+  [string]$BrowserName,
 
   [Parameter(Mandatory = $true)]
   [string]$EditorUrl,
@@ -11,11 +15,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$edge = [System.IO.Path]::GetFullPath($EdgePath)
+$browser = [System.IO.Path]::GetFullPath($BrowserPath)
 $profile = [System.IO.Path]::GetFullPath($ProfilePath)
 
-if (-not (Test-Path -LiteralPath $edge -PathType Leaf)) {
-  throw "Microsoft Edge was not found: $edge"
+if (-not (Test-Path -LiteralPath $browser -PathType Leaf)) {
+  throw "$BrowserName was not found: $browser"
 }
 
 $parsedUrl = $null
@@ -39,8 +43,8 @@ $arguments = @(
   "--user-data-dir=`"$profile`""
 )
 
-$edgeProcess = Start-Process `
-  -FilePath $edge `
+$browserProcess = Start-Process `
+  -FilePath $browser `
   -ArgumentList $arguments `
   -WindowStyle Maximized `
   -PassThru
@@ -48,15 +52,15 @@ $edgeProcess = Start-Process `
 $deadline = [DateTime]::UtcNow.AddSeconds(8)
 do {
   Start-Sleep -Milliseconds 100
-  $edgeProcess.Refresh()
-  if ($edgeProcess.HasExited) {
-    throw "Microsoft Edge closed before the placement editor became visible."
+  $browserProcess.Refresh()
+  if ($browserProcess.HasExited) {
+    throw "$BrowserName closed before the placement editor became visible."
   }
-} while ($edgeProcess.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
+} while ($browserProcess.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
 
-if ($edgeProcess.MainWindowHandle -eq 0) {
-  Stop-Process -Id $edgeProcess.Id -Force -ErrorAction SilentlyContinue
-  throw "Microsoft Edge started without a visible placement editor window."
+if ($browserProcess.MainWindowHandle -eq 0) {
+  Stop-Process -Id $browserProcess.Id -Force -ErrorAction SilentlyContinue
+  throw "$BrowserName started without a visible placement editor window."
 }
 
-Write-Output $edgeProcess.Id
+Write-Output $browserProcess.Id

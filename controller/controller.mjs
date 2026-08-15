@@ -25,6 +25,7 @@ const layoutPath = path.join(dataRoot, "layout.json");
 const libraryRoot = process.env.TRICKCAL_LIBRARY_ROOT || path.join(dataRoot, "Library");
 const requestLogPath = path.join(dataRoot, "controller-requests.log");
 const pidPath = path.join(controllerDirectory, "controller.pid");
+const chromeProfile = path.join(dataRoot, "ChromePlacementProfileVisibleV1");
 const edgeProfile = path.join(dataRoot, "EdgePlacementProfileVisibleV2");
 const controllerHeader = "x-trickcal-controller";
 const supportedImageExtensions = new Set([".jpeg", ".jpg", ".png", ".webp"]);
@@ -382,23 +383,61 @@ async function writeLayout(layout) {
   await writeFile(layoutPath, `${JSON.stringify(layout, null, 2)}\n`, "utf8");
 }
 
-async function findEdge() {
-  const candidates = [
-    path.join(process.env["ProgramFiles(x86)"] || "", "Microsoft", "Edge", "Application", "msedge.exe"),
-    path.join(process.env.ProgramFiles || "", "Microsoft", "Edge", "Application", "msedge.exe"),
-    path.join(process.env.LOCALAPPDATA || "", "Microsoft", "Edge", "Application", "msedge.exe"),
-  ];
-
+async function findInstalledBrowser(candidates) {
   for (const candidate of candidates) {
-    if (!candidate || candidate.startsWith(`${path.sep}Microsoft`)) continue;
+    if (!candidate) continue;
     try {
       await access(candidate);
       return candidate;
     } catch {
-      // Try the next standard Edge installation path.
+      // Try the next standard browser installation path.
     }
   }
-  throw new Error("Microsoft Edge could not be found");
+  return null;
+}
+
+async function findPreferredBrowser() {
+  const chromePath = await findInstalledBrowser([
+    process.env.ProgramFiles
+      ? path.join(process.env.ProgramFiles, "Google", "Chrome", "Application", "chrome.exe")
+      : null,
+    process.env["ProgramFiles(x86)"]
+      ? path.join(process.env["ProgramFiles(x86)"], "Google", "Chrome", "Application", "chrome.exe")
+      : null,
+    process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe")
+      : null,
+  ]);
+
+  if (chromePath) {
+    return {
+      executablePath: chromePath,
+      name: "Google Chrome",
+      profilePath: chromeProfile,
+    };
+  }
+
+  const edgePath = await findInstalledBrowser([
+    process.env["ProgramFiles(x86)"]
+      ? path.join(process.env["ProgramFiles(x86)"], "Microsoft", "Edge", "Application", "msedge.exe")
+      : null,
+    process.env.ProgramFiles
+      ? path.join(process.env.ProgramFiles, "Microsoft", "Edge", "Application", "msedge.exe")
+      : null,
+    process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, "Microsoft", "Edge", "Application", "msedge.exe")
+      : null,
+  ]);
+
+  if (edgePath) {
+    return {
+      executablePath: edgePath,
+      name: "Microsoft Edge",
+      profilePath: edgeProfile,
+    };
+  }
+
+  throw new Error("Google Chrome and Microsoft Edge could not be found");
 }
 
 async function openEditor() {
@@ -407,8 +446,8 @@ async function openEditor() {
   }
   editorProcessId = null;
 
-  const edgePath = await findEdge();
-  await mkdir(edgeProfile, { recursive: true });
+  const browser = await findPreferredBrowser();
+  await mkdir(browser.profilePath, { recursive: true });
   const editorUrl = `http://127.0.0.1:${port}/editor/?mode=placement`;
   const launchScript = path.join(controllerDirectory, "Launch-PlacementEditor.ps1");
   const output = await spawnAndCapture("powershell.exe", [
@@ -418,12 +457,14 @@ async function openEditor() {
     "Bypass",
     "-File",
     launchScript,
-    "-EdgePath",
-    edgePath,
+    "-BrowserPath",
+    browser.executablePath,
+    "-BrowserName",
+    browser.name,
     "-EditorUrl",
     editorUrl,
     "-ProfilePath",
-    edgeProfile,
+    browser.profilePath,
   ]);
   const processId = Number.parseInt(output.split(/\s+/).at(-1), 10);
   if (!isProcessRunning(processId)) {

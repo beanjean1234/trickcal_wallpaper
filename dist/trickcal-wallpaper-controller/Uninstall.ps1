@@ -31,12 +31,18 @@ if (Test-Path -LiteralPath $targetRoot) {
 
 if ($RemoveSavedLayout) {
   $layoutPath = Join-Path $appRoot "layout.json"
-  $edgeProfile = Join-Path $appRoot "EdgePlacementProfile"
+  $browserProfiles = @(
+    (Join-Path $appRoot "ChromePlacementProfileVisibleV1"),
+    (Join-Path $appRoot "EdgePlacementProfileVisibleV2"),
+    (Join-Path $appRoot "EdgePlacementProfile")
+  )
   if (Test-Path -LiteralPath $layoutPath) {
     Remove-Item -LiteralPath $layoutPath -Force
   }
-  if (Test-Path -LiteralPath $edgeProfile) {
-    Remove-Item -LiteralPath $edgeProfile -Recurse -Force
+  foreach ($browserProfile in $browserProfiles) {
+    if (Test-Path -LiteralPath $browserProfile) {
+      Remove-Item -LiteralPath $browserProfile -Recurse -Force
+    }
   }
 }
 

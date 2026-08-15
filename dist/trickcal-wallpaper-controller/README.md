@@ -4,7 +4,7 @@ Lively 배경화면과 별도의 오브젝트 관리창을 연결하는 Windows�
 
 ## 담당 기능
 
-- 오브젝트 관리창 열기 및 닫기
+- 오브젝트 관리창 열기 및 닫기(Chrome 우선, 설치되어 있지 않으면 Edge 사용)
 - `%LOCALAPPDATA%\TrickcalWallpaper\layout.json`에 배치 저장
 - `%LOCALAPPDATA%\TrickcalWallpaper\Library`의 분류 폴더와 이미지 자동 검색
 - 라이브러리 이미지의 로컬 제공
