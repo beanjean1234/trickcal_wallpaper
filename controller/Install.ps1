@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $packageRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
 $appRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "TrickcalWallpaper"))
 $targetRoot = [System.IO.Path]::GetFullPath((Join-Path $appRoot "Controller"))
+$libraryRoot = [System.IO.Path]::GetFullPath((Join-Path $appRoot "Library"))
 $targetPrefix = $appRoot + [System.IO.Path]::DirectorySeparatorChar
 $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $runName = "TrickcalWallpaperController"
@@ -24,6 +25,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $packageRoot "controller.mjs"))) {
   throw "controller.mjs is missing from the controller package."
 }
 
+if (-not (Test-Path -LiteralPath (Join-Path $packageRoot "Expand-ImagePack.ps1"))) {
+  throw "Expand-ImagePack.ps1 is missing from the controller package."
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $packageRoot "web\index.html"))) {
   throw "The controller web assets are missing. Rebuild the controller package."
 }
@@ -38,7 +43,29 @@ if (Test-Path -LiteralPath $existingPidFile) {
 }
 
 New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $libraryRoot -Force | Out-Null
+
+$legacyImages = Join-Path $targetRoot "web\icons"
+if (Test-Path -LiteralPath $legacyImages -PathType Container) {
+  $legacyPrefix = [System.IO.Path]::GetFullPath($legacyImages) + [System.IO.Path]::DirectorySeparatorChar
+  $libraryPrefix = $libraryRoot + [System.IO.Path]::DirectorySeparatorChar
+  Get-ChildItem -LiteralPath $legacyImages -File -Recurse | Where-Object {
+    $_.Extension -match '^\.(webp|png|jpe?g)$'
+  } | ForEach-Object {
+    $relativePath = $_.FullName.Substring($legacyPrefix.Length)
+    $destination = [System.IO.Path]::GetFullPath((Join-Path $libraryRoot $relativePath))
+    if (-not $destination.StartsWith($libraryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "Refusing to migrate an image outside the library: $destination"
+    }
+    if (-not (Test-Path -LiteralPath $destination)) {
+      New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+      Copy-Item -LiteralPath $_.FullName -Destination $destination
+    }
+  }
+}
+
 Copy-Item -LiteralPath (Join-Path $packageRoot "controller.mjs") -Destination $targetRoot -Force
+Copy-Item -LiteralPath (Join-Path $packageRoot "Expand-ImagePack.ps1") -Destination $targetRoot -Force
 Copy-Item -LiteralPath (Join-Path $packageRoot "Start-Controller.ps1") -Destination $targetRoot -Force
 $legacyLauncher = Join-Path $targetRoot "Start-Controller.vbs"
 if (Test-Path -LiteralPath $legacyLauncher) {
@@ -66,4 +93,5 @@ Start-Process `
   -WindowStyle Hidden
 
 Write-Host "Trickcal Wallpaper Controller installed: $targetRoot"
+Write-Host "Image library: $libraryRoot"
 Write-Host "Auto start: $(-not $NoAutoStart)"

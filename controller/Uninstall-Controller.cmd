@@ -9,5 +9,5 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-echo Uninstallation complete. The saved layout was kept.
+echo Uninstallation complete. The saved layout and image library were kept.
 pause

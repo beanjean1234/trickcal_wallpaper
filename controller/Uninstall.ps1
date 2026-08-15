@@ -1,5 +1,6 @@
 param(
-  [switch]$RemoveSavedLayout
+  [switch]$RemoveSavedLayout,
+  [switch]$RemoveImageLibrary
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,5 +40,13 @@ if ($RemoveSavedLayout) {
   }
 }
 
+if ($RemoveImageLibrary) {
+  $libraryRoot = Join-Path $appRoot "Library"
+  if (Test-Path -LiteralPath $libraryRoot) {
+    Remove-Item -LiteralPath $libraryRoot -Recurse -Force
+  }
+}
+
 Write-Host "Trickcal Wallpaper Controller uninstalled."
 Write-Host "Saved layout removed: $RemoveSavedLayout"
+Write-Host "Image library removed: $RemoveImageLibrary"

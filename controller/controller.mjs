@@ -1,6 +1,17 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { access, appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  appendFile,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,10 +22,13 @@ const port = Number(process.env.TRICKCAL_CONTROLLER_PORT) || 39271;
 const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
 const dataRoot = process.env.TRICKCAL_DATA_ROOT || path.join(localAppData, "TrickcalWallpaper");
 const layoutPath = path.join(dataRoot, "layout.json");
+const libraryRoot = process.env.TRICKCAL_LIBRARY_ROOT || path.join(dataRoot, "Library");
 const requestLogPath = path.join(dataRoot, "controller-requests.log");
 const pidPath = path.join(controllerDirectory, "controller.pid");
 const edgeProfile = path.join(dataRoot, "EdgePlacementProfile");
 const controllerHeader = "x-trickcal-controller";
+const supportedImageExtensions = new Set([".jpeg", ".jpg", ".png", ".webp"]);
+const maxPackSize = 128 * 1024 * 1024;
 const allowedOrigins = new Set([
   "null",
   "file://",
@@ -104,6 +118,199 @@ async function readJsonBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+async function readBinaryBody(request, maxSize = maxPackSize) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxSize) throw new Error("Image pack is too large");
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) throw new Error("Image pack is empty");
+  return Buffer.concat(chunks);
+}
+
+const compareKorean = (left, right) => left.localeCompare(right, "ko", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function normalizeRelativeAsset(value) {
+  const normalized = String(value ?? "").normalize("NFC").replaceAll("\\", "/");
+  const segments = normalized.split("/");
+  if (
+    !normalized ||
+    normalized.length > 260 ||
+    normalized.startsWith("/") ||
+    segments.some((segment) => !segment || segment === "." || segment === "..") ||
+    segments.some((segment) => /[\u0000-\u001f\u007f]/.test(segment)) ||
+    !supportedImageExtensions.has(path.extname(normalized).toLowerCase())
+  ) {
+    return null;
+  }
+  return segments.join("/");
+}
+
+async function collectLibraryImages(directory, relativeDirectory = "", assets = []) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  entries.sort((left, right) => compareKorean(left.name, right.name));
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const relativePath = relativeDirectory
+      ? `${relativeDirectory}/${entry.name}`
+      : entry.name;
+    const absolutePath = path.join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      await collectLibraryImages(absolutePath, relativePath, assets);
+      continue;
+    }
+
+    if (!entry.isFile()) continue;
+    const file = normalizeRelativeAsset(relativePath);
+    if (!file) continue;
+    const details = await stat(absolutePath);
+    const segments = file.split("/");
+    const category = segments.length > 1 ? segments[0] : "기타";
+    assets.push({
+      category,
+      name: path.basename(file, path.extname(file)),
+      file,
+      revision: `${Math.floor(details.mtimeMs).toString(36)}-${details.size.toString(36)}`,
+    });
+  }
+  return assets;
+}
+
+async function scanLibrary() {
+  await mkdir(libraryRoot, { recursive: true });
+  const entries = await readdir(libraryRoot, { withFileTypes: true });
+  const categories = entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => entry.name.normalize("NFC"))
+    .sort(compareKorean);
+  const assets = await collectLibraryImages(libraryRoot);
+
+  if (assets.some((asset) => asset.category === "기타") && !categories.includes("기타")) {
+    categories.push("기타");
+    categories.sort(compareKorean);
+  }
+
+  assets.sort((left, right) =>
+    compareKorean(left.category, right.category) || compareKorean(left.name, right.name));
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    libraryPath: libraryRoot,
+    categories,
+    assets,
+  };
+}
+
+function spawnAndWait(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true,
+      ...options,
+    });
+    let errorOutput = "";
+    child.stderr?.on("data", (chunk) => {
+      errorOutput += chunk.toString("utf8");
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(errorOutput.trim() || `${command} exited with code ${code}`));
+    });
+  });
+}
+
+async function findPackImageRoot(extractedRoot) {
+  const directImages = path.join(extractedRoot, "images");
+  try {
+    if ((await stat(directImages)).isDirectory()) return directImages;
+  } catch {
+    // Try a single wrapper directory next.
+  }
+
+  const entries = await readdir(extractedRoot, { withFileTypes: true });
+  const directories = entries.filter((entry) => entry.isDirectory());
+  if (directories.length === 1) {
+    const wrappedImages = path.join(extractedRoot, directories[0].name, "images");
+    try {
+      if ((await stat(wrappedImages)).isDirectory()) return wrappedImages;
+    } catch {
+      // Fall back to importing supported images from the extracted root.
+    }
+  }
+  return extractedRoot;
+}
+
+async function importImagePack(buffer) {
+  const importRoot = path.join(dataRoot, ".imports");
+  await mkdir(importRoot, { recursive: true });
+  const temporaryRoot = await mkdtemp(path.join(importRoot, "pack-"));
+  const archivePath = path.join(temporaryRoot, "pack.zip");
+  const extractedRoot = path.join(temporaryRoot, "extracted");
+  const expandScript = path.join(controllerDirectory, "Expand-ImagePack.ps1");
+
+  try {
+    await writeFile(archivePath, buffer);
+    await mkdir(extractedRoot, { recursive: true });
+    await spawnAndWait("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      expandScript,
+      "-ArchivePath",
+      archivePath,
+      "-DestinationPath",
+      extractedRoot,
+    ]);
+
+    const packImageRoot = await findPackImageRoot(extractedRoot);
+    const importedAssets = await collectLibraryImages(packImageRoot);
+    if (importedAssets.length === 0) {
+      throw new Error("The image pack does not contain supported images");
+    }
+    if (importedAssets.length > 2000) {
+      throw new Error("The image pack contains too many images");
+    }
+
+    let imported = 0;
+    for (const asset of importedAssets) {
+      const sourcePath = path.resolve(packImageRoot, ...asset.file.split("/"));
+      const relativeAsset = asset.file.includes("/") ? asset.file : `기타/${asset.file}`;
+      const normalizedAsset = normalizeRelativeAsset(relativeAsset);
+      if (!normalizedAsset) continue;
+      const destinationPath = path.resolve(libraryRoot, ...normalizedAsset.split("/"));
+      const libraryPrefix = `${path.resolve(libraryRoot)}${path.sep}`;
+      if (!destinationPath.startsWith(libraryPrefix)) continue;
+      await mkdir(path.dirname(destinationPath), { recursive: true });
+      await copyFile(sourcePath, destinationPath);
+      imported += 1;
+    }
+
+    return { imported, catalog: await scanLibrary() };
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function openLibraryFolder() {
+  await mkdir(libraryRoot, { recursive: true });
+  const explorer = spawn("explorer.exe", [libraryRoot], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: false,
+  });
+  explorer.unref();
+}
+
 function normalizeLayout(candidate) {
   if (!candidate || !Array.isArray(candidate.objects)) {
     throw new Error("Layout objects are required");
@@ -111,12 +318,9 @@ function normalizeLayout(candidate) {
 
   const seen = new Set();
   const objects = [];
-  for (const object of candidate.objects.slice(0, 32)) {
+  for (const object of candidate.objects.slice(0, 256)) {
     const id = String(object.id ?? "").toLowerCase();
-    const asset = String(object.asset ?? "")
-      .normalize("NFC")
-      .replaceAll("\\", "/");
-    const assetSegments = asset.split("/");
+    const asset = normalizeRelativeAsset(object.asset);
     const label = String(object.label ?? "오브젝트")
       .normalize("NFC")
       .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -126,11 +330,7 @@ function normalizeLayout(candidate) {
     const y = Number(object.y);
     if (!/^[a-z0-9_-]{1,40}$/.test(id) || seen.has(id)) continue;
     if (
-      !asset ||
-      asset.length > 260 ||
-      asset.startsWith("/") ||
-      assetSegments.some((segment) => !segment || segment === "." || segment === "..") ||
-      !/\.(?:webp|png|jpe?g)$/i.test(asset)
+      !asset
     ) continue;
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     seen.add(id);
@@ -265,6 +465,46 @@ async function sendStaticFile(requestPath, response) {
   }
 }
 
+async function sendLibraryAsset(requestPath, response) {
+  let relativeAsset;
+  try {
+    relativeAsset = decodeURIComponent(requestPath.replace(/^\/library\//, ""));
+  } catch {
+    sendJson(response, 400, { error: "Invalid image path" });
+    return;
+  }
+
+  const normalizedAsset = normalizeRelativeAsset(relativeAsset);
+  if (!normalizedAsset) {
+    sendJson(response, 404, { error: "Image not found" });
+    return;
+  }
+
+  const resolvedPath = path.resolve(libraryRoot, ...normalizedAsset.split("/"));
+  const libraryPrefix = `${path.resolve(libraryRoot)}${path.sep}`;
+  if (!resolvedPath.startsWith(libraryPrefix)) {
+    sendJson(response, 403, { error: "Forbidden" });
+    return;
+  }
+
+  try {
+    const details = await stat(resolvedPath);
+    if (!details.isFile()) throw Object.assign(new Error("Not found"), { code: "ENOENT" });
+    const body = await readFile(resolvedPath);
+    response.writeHead(200, {
+      "Content-Type": mimeTypes.get(path.extname(resolvedPath).toLowerCase()) || "application/octet-stream",
+      "Content-Length": body.length,
+      "Cache-Control": "no-store",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    });
+    response.end(body);
+  } catch (error) {
+    sendJson(response, error.code === "ENOENT" ? 404 : 500, {
+      error: error.code === "ENOENT" ? "Image not found" : "Could not load the image",
+    });
+  }
+}
+
 const server = createServer(async (request, response) => {
   try {
     const corsAllowed = applyCors(request, response);
@@ -289,7 +529,12 @@ const server = createServer(async (request, response) => {
       }
 
       if (request.method === "GET" && url.pathname === "/api/health") {
-        sendJson(response, 200, { ok: true, version: 2 });
+        sendJson(response, 200, { ok: true, version: 3, libraryPath: libraryRoot });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/catalog") {
+        sendJson(response, 200, await scanLibrary());
         return;
       }
 
@@ -316,6 +561,18 @@ const server = createServer(async (request, response) => {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/open-library") {
+        await openLibraryFolder();
+        sendJson(response, 200, { ok: true, libraryPath: libraryRoot });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/import-pack") {
+        const result = await importImagePack(await readBinaryBody(request));
+        sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
+
       sendJson(response, 404, { error: "Unknown API endpoint" });
       return;
     }
@@ -328,6 +585,11 @@ const server = createServer(async (request, response) => {
 
     if (url.pathname.startsWith("/editor")) {
       await sendStaticFile(url.pathname, response);
+      return;
+    }
+
+    if (url.pathname.startsWith("/library/")) {
+      await sendLibraryAsset(url.pathname, response);
       return;
     }
 
@@ -349,6 +611,7 @@ server.on("error", (error) => {
 });
 
 server.listen(port, "127.0.0.1", async () => {
+  await mkdir(libraryRoot, { recursive: true });
   await writeFile(pidPath, String(process.pid), "utf8").catch(() => {});
   console.log(`Trickcal Wallpaper Controller listening on http://127.0.0.1:${port}`);
 });

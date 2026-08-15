@@ -32,17 +32,20 @@ async function scopedModule(fileName, exportedNames) {
 
 const sections = await Promise.all([
   scopedModule("settings.js", ["LENS", "PARAMETERS"]),
-  scopedModule("assets.generated.js", ["ICON_ASSETS", "ICON_CATEGORIES"]),
   scopedModule("background.js", ["createBackgroundRenderer"]),
   scopedModule("interaction.js", ["makeDraggableGroup"]),
   scopedModule("layout.js", [
     "captureLayout",
     "applyLayout",
     "pingLayoutController",
+    "loadAssetCatalog",
+    "getLibraryAssetUrl",
     "loadSavedLayout",
     "saveLayout",
     "openPlacementEditor",
     "closePlacementEditor",
+    "openImageLibrary",
+    "importImagePack",
   ]),
   scopedModule("scene.js", [
     "getCurrentLensSize",

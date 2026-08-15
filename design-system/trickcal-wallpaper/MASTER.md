@@ -70,6 +70,14 @@ Do not use colored accents outside the selected-image checkbox. Do not use decor
 - Status is communicated with explicit text, not colored or glowing dots.
 - The optional placement toolbar uses the same monochrome surfaces and button hierarchy.
 
+### Image library controls
+
+- Keep folder open, pack import, and refresh actions together above search and category filters.
+- Text actions use 44px-high neutral buttons; refresh is a 44px icon-only button with an accessible name.
+- Show explicit folder and image counts after catalog loading.
+- Disable repeated import or refresh actions while a request is running and expose `aria-busy`.
+- Category folders are discovered dynamically; never encode a fixed category list in the UI.
+
 ## Accessibility and motion
 
 - Maintain at least 4.5:1 text contrast.

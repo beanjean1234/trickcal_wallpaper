@@ -26,11 +26,6 @@ if (Test-Path -LiteralPath $archivePath) {
 
 New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
 
-& node (Join-Path $projectRoot "scripts\generate-asset-catalog.mjs")
-if ($LASTEXITCODE -ne 0) {
-  throw "Failed to generate the image catalog."
-}
-
 @(
   "LivelyInfo.json",
   "LivelyProperties.json"
@@ -44,8 +39,6 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "css") -Destination $stagingRoot 
 if ($LASTEXITCODE -ne 0) {
   throw "Failed to build the classic JavaScript wallpaper bundle."
 }
-
-Copy-Item -LiteralPath (Join-Path $projectRoot "icons") -Destination $stagingRoot -Recurse -Force
 
 Compress-Archive -Path (Join-Path $stagingRoot "*") -DestinationPath $archivePath -CompressionLevel Optimal
 

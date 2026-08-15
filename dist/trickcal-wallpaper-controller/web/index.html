@@ -50,6 +50,28 @@
           <span class="object-manager__count" id="object-count">0</span>
         </div>
 
+        <div class="library-tools" aria-label="이미지 라이브러리 관리">
+          <button class="library-tools__button" id="open-library" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3.5 5.5h6l2 2h9v11h-17v-13Zm2 4v7h13v-7h-13Z" />
+            </svg>
+            폴더 열기
+          </button>
+          <button class="library-tools__button" id="import-pack" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M11 4h2v8.15l2.6-2.6L17 11l-5 5-5-5 1.4-1.45 2.6 2.6V4ZM5 18h14v2H5v-2Z" />
+            </svg>
+            팩 가져오기
+          </button>
+          <button class="library-tools__button library-tools__button--icon" id="refresh-library" type="button" aria-label="이미지 라이브러리 새로고침">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 16.2 7.8L13 11h7V4l-2.35 2.35Z" />
+            </svg>
+          </button>
+          <input id="image-pack-input" type="file" accept=".zip,application/zip" hidden />
+        </div>
+        <p class="library-summary" id="library-summary" role="status">이미지 라이브러리를 불러오는 중입니다.</p>
+
         <div class="asset-search">
           <label class="sr-only" for="asset-search-input">이미지 이름 검색</label>
           <svg viewBox="0 0 24 24" aria-hidden="true">

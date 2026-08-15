@@ -16,16 +16,24 @@ function getControllerUrl(path) {
 async function controllerRequest(path, options = {}) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), options.timeout ?? 1600);
+  const {
+    timeout: _timeout,
+    headers: optionHeaders = {},
+    ...fetchOptions
+  } = options;
+  const hasContentType = Object.keys(optionHeaders)
+    .some((name) => name.toLowerCase() === "content-type");
+  const shouldUseJson = typeof options.body === "string" && !hasContentType;
 
   try {
     const response = await fetch(getControllerUrl(path), {
-      ...options,
+      ...fetchOptions,
       cache: "no-store",
       signal: controller.signal,
       headers: {
         [CONTROLLER_HEADER]: "1",
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...options.headers,
+        ...(shouldUseJson ? { "Content-Type": "application/json" } : {}),
+        ...optionHeaders,
       },
     });
 
@@ -98,6 +106,21 @@ export async function loadSavedLayout() {
   return response.json();
 }
 
+export async function loadAssetCatalog() {
+  const response = await controllerRequest("/api/catalog", { timeout: 5000 });
+  return response.json();
+}
+
+export function getLibraryAssetUrl(file, revision = "") {
+  const encodedPath = String(file ?? "")
+    .replaceAll("\\", "/")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const version = revision ? `?v=${encodeURIComponent(revision)}` : "";
+  return `${getControllerUrl(`/library/${encodedPath}`)}${version}`;
+}
+
 export async function saveLayout(layout) {
   const response = await controllerRequest("/api/layout", {
     method: "POST",
@@ -119,6 +142,24 @@ export async function closePlacementEditor() {
   const response = await controllerRequest("/api/close-editor", {
     method: "POST",
     timeout: 1800,
+  });
+  return response.json();
+}
+
+export async function openImageLibrary() {
+  const response = await controllerRequest("/api/open-library", {
+    method: "POST",
+    timeout: 3000,
+  });
+  return response.json();
+}
+
+export async function importImagePack(file) {
+  const response = await controllerRequest("/api/import-pack", {
+    method: "POST",
+    body: file,
+    headers: { "Content-Type": "application/zip" },
+    timeout: 120000,
   });
   return response.json();
 }

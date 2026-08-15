@@ -1,11 +1,14 @@
 import { createBackgroundRenderer } from "./background.js";
-import { ICON_ASSETS, ICON_CATEGORIES } from "./assets.generated.js";
 import { makeDraggableGroup } from "./interaction.js";
 import {
   applyLayout,
   captureLayout,
   closePlacementEditor,
+  getLibraryAssetUrl,
+  importImagePack,
+  loadAssetCatalog,
   loadSavedLayout,
+  openImageLibrary,
   openPlacementEditor,
   saveLayout,
 } from "./layout.js";
@@ -30,9 +33,13 @@ const assetSearchInput = document.querySelector("#asset-search-input");
 const categoryFilter = document.querySelector("#category-filter");
 const assetGrid = document.querySelector("#asset-grid");
 const assetGridEmpty = document.querySelector("#asset-grid-empty");
+const librarySummary = document.querySelector("#library-summary");
+const openLibraryButton = document.querySelector("#open-library");
+const importPackButton = document.querySelector("#import-pack");
+const refreshLibraryButton = document.querySelector("#refresh-library");
+const imagePackInput = document.querySelector("#image-pack-input");
 const toast = document.querySelector("#toast");
 const isPlacementEditor = new URLSearchParams(location.search).get("mode") === "placement";
-const assetByFile = new Map(ICON_ASSETS.map((asset) => [asset.file, asset]));
 const magnifiers = [];
 
 document.body.classList.toggle("is-placement-editor", isPlacementEditor);
@@ -46,6 +53,12 @@ let directSaveTimer = null;
 let selectedObjectId = null;
 let selectedCategory = "전체";
 let assetSearchQuery = "";
+let iconAssets = [];
+let iconCategories = [];
+let assetByFile = new Map();
+let catalogFingerprint = "";
+let catalogLoaded = false;
+let catalogLoading = false;
 let objectSequence = 0;
 let activeShadowOpacity = 0.2;
 let activeShadowBlur = 48;
@@ -58,6 +71,90 @@ function showToast(message, duration = 2800) {
   toastTimer = window.setTimeout(() => {
     toast.hidden = true;
   }, duration);
+}
+
+function normalizeCatalog(catalog) {
+  const categories = Array.isArray(catalog?.categories)
+    ? catalog.categories.filter((category) => typeof category === "string" && category.trim())
+    : [];
+  const assets = Array.isArray(catalog?.assets)
+    ? catalog.assets.filter((asset) =>
+      asset &&
+      typeof asset.category === "string" &&
+      typeof asset.name === "string" &&
+      typeof asset.file === "string")
+    : [];
+  return { categories, assets };
+}
+
+function updateLibrarySummary() {
+  if (!isPlacementEditor) return;
+  librarySummary.textContent = catalogLoaded
+    ? `${iconCategories.length}개 폴더 · ${iconAssets.length}개 이미지`
+    : "컨트롤러 연결을 확인해 주세요.";
+}
+
+function setCatalogLoading(loading) {
+  catalogLoading = loading;
+  if (!isPlacementEditor) return;
+  refreshLibraryButton.disabled = loading;
+  importPackButton.disabled = loading;
+  refreshLibraryButton.classList.toggle("is-loading", loading);
+  refreshLibraryButton.setAttribute("aria-busy", String(loading));
+}
+
+function applyAssetCatalog(catalog, { force = false } = {}) {
+  const { categories, assets } = normalizeCatalog(catalog);
+  const nextFingerprint = JSON.stringify({
+    categories,
+    assets: assets.map((asset) => [asset.file, asset.revision ?? ""]),
+  });
+  if (!force && nextFingerprint === catalogFingerprint) return false;
+
+  catalogFingerprint = nextFingerprint;
+  catalogLoaded = true;
+  iconCategories = categories;
+  iconAssets = assets;
+  assetByFile = new Map(assets.map((asset) => [asset.file, asset]));
+
+  if (selectedCategory !== "전체" && !iconCategories.includes(selectedCategory)) {
+    selectedCategory = "전체";
+  }
+
+  magnifiers.forEach((element) => {
+    const asset = assetByFile.get(element.dataset.asset);
+    if (!asset) return;
+    const image = element.querySelector(".magnifier__image");
+    const nextSource = getLibraryAssetUrl(asset.file, asset.revision);
+    if (image.src !== nextSource) image.src = nextSource;
+  });
+
+  renderCategoryFilter();
+  renderAssetLibrary();
+  updateLibrarySummary();
+  if (activeLayout && !layoutDirty) reconcileLayoutObjects(activeLayout);
+  return true;
+}
+
+async function refreshAssetCatalog({ announce = false, force = false } = {}) {
+  if (catalogLoading) return false;
+  setCatalogLoading(true);
+  try {
+    const catalog = await loadAssetCatalog();
+    const changed = applyAssetCatalog(catalog, { force });
+    if (announce) {
+      showToast(changed ? "이미지 라이브러리를 새로 불러왔습니다." : "이미지 라이브러리가 최신 상태입니다.");
+    }
+    return true;
+  } catch {
+    catalogLoaded = false;
+    updateLibrarySummary();
+    renderAssetLibrary();
+    if (announce) showToast("이미지 라이브러리를 불러오지 못했습니다.", 4200);
+    return false;
+  } finally {
+    setCatalogLoading(false);
+  }
 }
 
 function updatePlacementStatus(message) {
@@ -133,7 +230,7 @@ function renderCategoryFilter() {
   if (!isPlacementEditor) return;
   categoryFilter.replaceChildren();
 
-  ["전체", ...ICON_CATEGORIES].forEach((category) => {
+  ["전체", ...iconCategories].forEach((category) => {
     const button = document.createElement("button");
     button.className = "category-filter__button";
     button.type = "button";
@@ -155,7 +252,7 @@ function renderAssetLibrary() {
   assetGrid.replaceChildren();
 
   const query = assetSearchQuery.trim().toLocaleLowerCase("ko");
-  const assets = ICON_ASSETS.filter((asset) => {
+  const assets = iconAssets.filter((asset) => {
     const categoryMatches = selectedCategory === "전체" || asset.category === selectedCategory;
     const queryMatches = !query ||
       `${asset.name} ${asset.file} ${asset.category}`.toLocaleLowerCase("ko").includes(query);
@@ -163,9 +260,11 @@ function renderAssetLibrary() {
   });
 
   assetGridEmpty.hidden = assets.length > 0;
-  assetGridEmpty.textContent = query
-    ? "검색 결과가 없습니다."
-    : "이 폴더에는 이미지가 없습니다.";
+  assetGridEmpty.textContent = !catalogLoaded
+    ? "이미지 라이브러리를 불러오는 중입니다."
+    : query
+      ? "검색 결과가 없습니다."
+      : "이 폴더에는 이미지가 없습니다.";
 
   assets.forEach((asset, index) => {
     const element = getMagnifiersByAsset(asset.file)[0] ?? null;
@@ -193,7 +292,7 @@ function renderAssetLibrary() {
     );
     selectButton.addEventListener("click", () => setSelectedObject(element));
 
-    thumbnail.src = new URL(`./icons/${asset.file}`, document.baseURI).href;
+    thumbnail.src = getLibraryAssetUrl(asset.file, asset.revision);
     thumbnail.alt = `${asset.name} 미리보기`;
     thumbnail.loading = index < 6 ? "eager" : "lazy";
     thumbnail.decoding = "async";
@@ -238,7 +337,7 @@ function createMagnifier(object) {
   magnifier.dataset.asset = asset.file;
   magnifier.dataset.label = label;
   magnifier.setAttribute("aria-label", `${label} 오브젝트 이동`);
-  image.src = new URL(`./icons/${asset.file}`, document.baseURI).href;
+  image.src = getLibraryAssetUrl(asset.file, asset.revision);
   image.decoding = "async";
   image.loading = magnifiers.length < 4 ? "eager" : "lazy";
   magnifier.style.setProperty("--shadow-opacity", String(activeShadowOpacity));
@@ -407,11 +506,60 @@ if (isPlacementEditor) {
   placementStatus.hidden = false;
   objectManager.hidden = false;
   renderCategoryFilter();
+  renderAssetLibrary();
+  updateLibrarySummary();
   updatePlacementStatus("0개 오브젝트 · 변경사항 없음");
 
   assetSearchInput.addEventListener("input", () => {
     assetSearchQuery = assetSearchInput.value;
     renderAssetLibrary();
+  });
+
+  openLibraryButton.addEventListener("click", async () => {
+    openLibraryButton.disabled = true;
+    try {
+      await openImageLibrary();
+      showToast("이미지 라이브러리 폴더를 열었습니다.");
+    } catch {
+      showToast("이미지 폴더를 열지 못했습니다.", 4200);
+    } finally {
+      openLibraryButton.disabled = false;
+    }
+  });
+
+  importPackButton.addEventListener("click", () => imagePackInput.click());
+
+  imagePackInput.addEventListener("change", async () => {
+    const [file] = imagePackInput.files;
+    imagePackInput.value = "";
+    if (!file) return;
+    if (!file.name.toLocaleLowerCase("ko").endsWith(".zip")) {
+      showToast("ZIP 형식의 이미지 팩을 선택해 주세요.", 4200);
+      return;
+    }
+    if (file.size > 128 * 1024 * 1024) {
+      showToast("이미지 팩은 128MB 이하여야 합니다.", 4200);
+      return;
+    }
+
+    setCatalogLoading(true);
+    importPackButton.classList.add("is-loading");
+    importPackButton.setAttribute("aria-busy", "true");
+    try {
+      const result = await importImagePack(file);
+      applyAssetCatalog(result.catalog, { force: true });
+      showToast(`${result.imported}개 이미지를 라이브러리에 가져왔습니다.`);
+    } catch {
+      showToast("이미지 팩을 가져오지 못했습니다. ZIP 구조를 확인해 주세요.", 4800);
+    } finally {
+      importPackButton.classList.remove("is-loading");
+      importPackButton.setAttribute("aria-busy", "false");
+      setCatalogLoading(false);
+    }
+  });
+
+  refreshLibraryButton.addEventListener("click", () => {
+    void refreshAssetCatalog({ announce: true, force: true });
   });
 
   study.addEventListener("pointerdown", (event) => {
@@ -456,9 +604,10 @@ if (isPlacementEditor) {
   });
 } else {
   window.setInterval(() => syncSavedLayout(), 2400);
+  window.setInterval(() => refreshAssetCatalog(), 10000);
 }
 
-initializationPromise = syncSavedLayout({ silent: true }).then((loaded) => {
+initializationPromise = refreshAssetCatalog().then(() => syncSavedLayout({ silent: true })).then((loaded) => {
   if (!loaded) {
     activeLayout = { version: 2, updatedAt: null, objects: [] };
     arrangeMagnifiers();
