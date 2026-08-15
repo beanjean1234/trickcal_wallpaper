@@ -30,6 +30,7 @@ New-Item -ItemType Directory -Path $controllerRoot -Force | Out-Null
 @(
   "controller.mjs",
   "Expand-ImagePack.ps1",
+  "Launch-PlacementEditor.ps1",
   "Start-Controller.ps1",
   "Install.ps1",
   "Uninstall.ps1",

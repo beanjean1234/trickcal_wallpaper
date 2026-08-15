@@ -25,7 +25,7 @@ const layoutPath = path.join(dataRoot, "layout.json");
 const libraryRoot = process.env.TRICKCAL_LIBRARY_ROOT || path.join(dataRoot, "Library");
 const requestLogPath = path.join(dataRoot, "controller-requests.log");
 const pidPath = path.join(controllerDirectory, "controller.pid");
-const edgeProfile = path.join(dataRoot, "EdgePlacementProfile");
+const edgeProfile = path.join(dataRoot, "EdgePlacementProfileVisibleV2");
 const controllerHeader = "x-trickcal-controller";
 const supportedImageExtensions = new Set([".jpeg", ".jpg", ".png", ".webp"]);
 const maxPackSize = 128 * 1024 * 1024;
@@ -49,7 +49,7 @@ const mimeTypes = new Map([
   [".webp", "image/webp"],
 ]);
 
-let editorProcess = null;
+let editorProcessId = null;
 
 function isAllowedOrigin(origin) {
   if (!origin || allowedOrigins.has(origin)) return true;
@@ -208,23 +208,41 @@ async function scanLibrary() {
   };
 }
 
-function spawnAndWait(command, args, options = {}) {
+function spawnAndCapture(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       ...options,
     });
+    let output = "";
     let errorOutput = "";
+    child.stdout?.on("data", (chunk) => {
+      output += chunk.toString("utf8");
+    });
     child.stderr?.on("data", (chunk) => {
       errorOutput += chunk.toString("utf8");
     });
     child.once("error", reject);
     child.once("exit", (code) => {
-      if (code === 0) resolve();
+      if (code === 0) resolve(output.trim());
       else reject(new Error(errorOutput.trim() || `${command} exited with code ${code}`));
     });
   });
+}
+
+async function spawnAndWait(command, args, options = {}) {
+  await spawnAndCapture(command, args, options);
+}
+
+function isProcessRunning(processId) {
+  if (!Number.isInteger(processId) || processId <= 0) return false;
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function findPackImageRoot(extractedRoot) {
@@ -384,50 +402,45 @@ async function findEdge() {
 }
 
 async function openEditor() {
-  if (editorProcess && editorProcess.exitCode === null) {
+  if (isProcessRunning(editorProcessId)) {
     return { opened: true, alreadyOpen: true };
   }
+  editorProcessId = null;
 
   const edgePath = await findEdge();
   await mkdir(edgeProfile, { recursive: true });
   const editorUrl = `http://127.0.0.1:${port}/editor/?mode=placement`;
-  const launchedProcess = spawn(
+  const launchScript = path.join(controllerDirectory, "Launch-PlacementEditor.ps1");
+  const output = await spawnAndCapture("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    launchScript,
+    "-EdgePath",
     edgePath,
-    [
-      `--app=${editorUrl}`,
-      "--start-maximized",
-      "--no-first-run",
-      "--disable-session-crashed-bubble",
-      `--user-data-dir=${edgeProfile}`,
-    ],
-    { stdio: "ignore", windowsHide: false },
-  );
-  editorProcess = launchedProcess;
-  launchedProcess.once("exit", () => {
-    if (editorProcess === launchedProcess) editorProcess = null;
-  });
-
-  await new Promise((resolve, reject) => {
-    launchedProcess.once("error", reject);
-    setTimeout(() => {
-      if (launchedProcess.exitCode !== null) {
-        reject(new Error(`The placement editor closed during startup (${launchedProcess.exitCode})`));
-      } else {
-        resolve();
-      }
-    }, 450);
-  });
+    "-EditorUrl",
+    editorUrl,
+    "-ProfilePath",
+    edgeProfile,
+  ]);
+  const processId = Number.parseInt(output.split(/\s+/).at(-1), 10);
+  if (!isProcessRunning(processId)) {
+    throw new Error("The placement editor did not remain open");
+  }
+  editorProcessId = processId;
   return { opened: true, alreadyOpen: false };
 }
 
 function closeEditor() {
-  if (!editorProcess || editorProcess.exitCode !== null) {
-    editorProcess = null;
+  if (!isProcessRunning(editorProcessId)) {
+    editorProcessId = null;
     return false;
   }
 
-  const pid = editorProcess.pid;
-  editorProcess = null;
+  const pid = editorProcessId;
+  editorProcessId = null;
   const killer = spawn("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
     stdio: "ignore",
     windowsHide: true,
