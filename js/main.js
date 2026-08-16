@@ -38,9 +38,12 @@ const openLibraryButton = document.querySelector("#open-library");
 const importPackButton = document.querySelector("#import-pack");
 const refreshLibraryButton = document.querySelector("#refresh-library");
 const imagePackInput = document.querySelector("#image-pack-input");
+const selectedObjectRemoveButton = document.querySelector("#selected-object-remove");
 const toast = document.querySelector("#toast");
 const isPlacementEditor = new URLSearchParams(location.search).get("mode") === "placement";
 const magnifiers = [];
+const ACTIVE_CATEGORY = "생성된 사도";
+const ALL_CATEGORY = "전체";
 
 document.body.classList.toggle("is-placement-editor", isPlacementEditor);
 
@@ -51,7 +54,7 @@ let layoutDirty = false;
 let layoutRevision = 0;
 let directSaveTimer = null;
 let selectedObjectId = null;
-let selectedCategory = "전체";
+let selectedCategory = ALL_CATEGORY;
 let assetSearchQuery = "";
 let iconAssets = [];
 let iconCategories = [];
@@ -117,8 +120,12 @@ function applyAssetCatalog(catalog, { force = false } = {}) {
   iconAssets = assets;
   assetByFile = new Map(assets.map((asset) => [asset.file, asset]));
 
-  if (selectedCategory !== "전체" && !iconCategories.includes(selectedCategory)) {
-    selectedCategory = "전체";
+  if (
+    selectedCategory !== ALL_CATEGORY &&
+    selectedCategory !== ACTIVE_CATEGORY &&
+    !iconCategories.includes(selectedCategory)
+  ) {
+    selectedCategory = ALL_CATEGORY;
   }
 
   magnifiers.forEach((element) => {
@@ -173,12 +180,32 @@ function makeObjectId() {
   return `object-${Date.now().toString(36)}-${objectSequence.toString(36)}`;
 }
 
+function updateSelectedObjectRemoveButton() {
+  if (!isPlacementEditor) return;
+  const element = magnifiers.find((item) => item.dataset.icon === selectedObjectId);
+  selectedObjectRemoveButton.hidden = !element;
+  if (!element) return;
+
+  const buttonRadius = 22;
+  const maxLeft = Math.max(buttonRadius, study.clientWidth - getRightInset() - buttonRadius);
+  const maxTop = Math.max(buttonRadius, study.scrollHeight - buttonRadius);
+  const left = Math.min(maxLeft, Math.max(buttonRadius, element.offsetLeft + element.offsetWidth));
+  const top = Math.min(maxTop, Math.max(buttonRadius, element.offsetTop));
+  const label = element.dataset.label || "선택한 오브젝트";
+
+  selectedObjectRemoveButton.style.left = `${left}px`;
+  selectedObjectRemoveButton.style.top = `${top}px`;
+  selectedObjectRemoveButton.setAttribute("aria-label", `선택한 ${label} 오브젝트 해제`);
+  selectedObjectRemoveButton.title = `${label} 오브젝트 해제`;
+}
+
 function setSelectedObject(element) {
   selectedObjectId = element?.dataset.icon ?? null;
   magnifiers.forEach((item) => {
     item.classList.toggle("is-selected", item === element);
   });
   renderAssetLibrary();
+  updateSelectedObjectRemoveButton();
 
   if (element) {
     element.focus({ preventScroll: true });
@@ -230,7 +257,12 @@ function renderCategoryFilter() {
   if (!isPlacementEditor) return;
   categoryFilter.replaceChildren();
 
-  ["전체", ...iconCategories].forEach((category) => {
+  const filters = [
+    ALL_CATEGORY,
+    ACTIVE_CATEGORY,
+    ...iconCategories.filter((category) => category !== ACTIVE_CATEGORY),
+  ];
+  filters.forEach((category) => {
     const button = document.createElement("button");
     button.className = "category-filter__button";
     button.type = "button";
@@ -252,8 +284,12 @@ function renderAssetLibrary() {
   assetGrid.replaceChildren();
 
   const query = assetSearchQuery.trim().toLocaleLowerCase("ko");
+  const activeAssetFiles = new Set(magnifiers.map((element) => element.dataset.asset));
   const assets = iconAssets.filter((asset) => {
-    const categoryMatches = selectedCategory === "전체" || asset.category === selectedCategory;
+    const categoryMatches = selectedCategory === ALL_CATEGORY ||
+      (selectedCategory === ACTIVE_CATEGORY
+        ? activeAssetFiles.has(asset.file)
+        : asset.category === selectedCategory);
     const queryMatches = !query ||
       `${asset.name} ${asset.file} ${asset.category}`.toLocaleLowerCase("ko").includes(query);
     return categoryMatches && queryMatches;
@@ -264,7 +300,9 @@ function renderAssetLibrary() {
     ? "이미지 라이브러리를 불러오는 중입니다."
     : query
       ? "검색 결과가 없습니다."
-      : "이 폴더에는 이미지가 없습니다.";
+      : selectedCategory === ACTIVE_CATEGORY
+        ? "생성된 사도가 없습니다."
+        : "이 폴더에는 이미지가 없습니다.";
 
   assets.forEach((asset, index) => {
     const element = getMagnifiersByAsset(asset.file)[0] ?? null;
@@ -285,15 +323,12 @@ function renderAssetLibrary() {
     item.classList.toggle("is-focused", focused);
     selectButton.className = "asset-card__select";
     selectButton.type = "button";
-    selectButton.disabled = !active;
-    selectButton.setAttribute(
-      "aria-label",
-      active ? `${asset.name} 오브젝트 선택` : `${asset.name} 이미지 미리보기`,
-    );
-    selectButton.addEventListener("click", () => setSelectedObject(element));
+    selectButton.setAttribute("aria-pressed", String(active));
+    selectButton.setAttribute("aria-label", `${asset.name} 오브젝트 ${active ? "해제" : "추가"}`);
+    selectButton.addEventListener("click", () => toggleAsset(asset, !active));
 
     thumbnail.src = getLibraryAssetUrl(asset.file, asset.revision);
-    thumbnail.alt = `${asset.name} 미리보기`;
+    thumbnail.alt = "";
     thumbnail.loading = index < 6 ? "eager" : "lazy";
     thumbnail.decoding = "async";
     copy.className = "asset-card__copy";
@@ -357,6 +392,7 @@ function removeMagnifier(element) {
   element.remove();
   if (selectedObjectId === element.dataset.icon) selectedObjectId = null;
   renderAssetLibrary();
+  updateSelectedObjectRemoveButton();
 }
 
 function arrangeMagnifiers() {
@@ -401,6 +437,7 @@ function arrangeMagnifiers() {
     magnifier.style.left = `${startX + column * (lensWidth + gap)}px`;
     magnifier.style.top = `${startY + row * (lensHeight + gap)}px`;
   });
+  updateSelectedObjectRemoveButton();
 }
 
 function placeNewMagnifier(element) {
@@ -438,6 +475,7 @@ function markLayoutChanged(selectedElement) {
   layoutDirty = true;
   layoutRevision += 1;
   scheduleDirectLayoutSave();
+  updateSelectedObjectRemoveButton();
   updatePlacementStatus(
     `${magnifiers.length}개 오브젝트 · ${selectedElement?.dataset.label ?? "목록"} 수정됨`,
   );
@@ -467,7 +505,9 @@ function reconcileLayoutObjects(layout) {
   );
   renderAssetLibrary();
   updatePlacementStatus(`${magnifiers.length}개 오브젝트 · 변경사항 없음`);
-  return applyLayout({ ...layout, objects }, magnifiers, study);
+  const applied = applyLayout({ ...layout, objects }, magnifiers, study);
+  updateSelectedObjectRemoveButton();
+  return applied;
 }
 
 async function syncSavedLayout({ silent = true } = {}) {
@@ -560,6 +600,21 @@ if (isPlacementEditor) {
 
   refreshLibraryButton.addEventListener("click", () => {
     void refreshAssetCatalog({ announce: true, force: true });
+  });
+
+  selectedObjectRemoveButton.addEventListener("click", () => {
+    const element = magnifiers.find((item) => item.dataset.icon === selectedObjectId);
+    if (!element) return;
+    const asset = assetByFile.get(element.dataset.asset);
+    if (asset) {
+      toggleAsset(asset, false);
+      return;
+    }
+
+    const label = element.dataset.label || "선택한 오브젝트";
+    removeMagnifier(element);
+    markLayoutChanged();
+    showToast(`${label} 오브젝트를 해제했습니다. 배치 저장 전까지는 확정되지 않습니다.`);
   });
 
   study.addEventListener("pointerdown", (event) => {
@@ -668,4 +723,5 @@ window.addEventListener("resize", () => {
   } else {
     interactionController.keepInBounds();
   }
+  updateSelectedObjectRemoveButton();
 }, { passive: true });

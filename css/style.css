@@ -1762,13 +1762,57 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
   font-size: 10px;
 }
 
-.asset-card__select:disabled {
-  cursor: default;
-}
-
 .asset-card__select:focus-visible {
   outline: 2px solid #fff;
   outline-offset: -4px;
+}
+
+.selected-object-remove {
+  position: absolute;
+  z-index: 107;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: #000;
+  cursor: pointer;
+  place-items: center;
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+  transform: translate(-50%, -50%);
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.selected-object-remove[hidden] {
+  display: none;
+}
+
+.selected-object-remove:hover {
+  background: #e9e9e9;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.25);
+}
+
+.selected-object-remove:active {
+  background: #d8d8d8;
+}
+
+.selected-object-remove:focus-visible {
+  outline: 2px solid #000;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px #fff;
+}
+
+.selected-object-remove svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
 }
 
 .asset-card__toggle {

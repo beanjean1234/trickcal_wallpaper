@@ -23,7 +23,7 @@
           </div>
         </div>
 
-        <p class="placement-toolbar__hint">이미지를 체크해 추가·해제하고, 오브젝트를 드래그해 배치하세요.</p>
+        <p class="placement-toolbar__hint">이미지를 선택해 추가·해제하고, 오브젝트를 드래그해 배치하세요.</p>
 
         <div class="placement-toolbar__actions">
           <button class="ui-button ui-button--quiet" id="reset-layout" type="button">
@@ -45,7 +45,7 @@
         <div class="object-manager__header">
           <div>
             <h2 id="object-manager-title">이미지 선택</h2>
-            <p>체크한 이미지를 배경화면에 배치합니다.</p>
+            <p>이미지 카드 또는 체크 표시로 오브젝트를 추가·해제합니다.</p>
           </div>
           <span class="object-manager__count" id="object-count">0</span>
         </div>
@@ -86,13 +86,26 @@
           />
         </div>
 
-        <nav class="category-filter" id="category-filter" aria-label="이미지 폴더"></nav>
+        <nav class="category-filter" id="category-filter" aria-label="이미지 필터"></nav>
 
         <ul class="asset-grid" id="asset-grid" aria-label="사용 가능한 이미지"></ul>
         <p class="asset-grid__empty" id="asset-grid-empty" role="status">
           이 폴더에는 이미지가 없습니다.
         </p>
       </aside>
+
+      <button
+        class="selected-object-remove"
+        id="selected-object-remove"
+        type="button"
+        aria-label="선택한 오브젝트 해제"
+        title="오브젝트 해제"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 7 17 17M17 7 7 17" />
+        </svg>
+      </button>
 
       <div class="placement-status" id="placement-status" hidden>
         <span id="placement-status-text">0개 오브젝트 · 변경사항 없음</span>
