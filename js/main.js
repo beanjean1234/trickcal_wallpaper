@@ -28,6 +28,7 @@ const resetLayoutButton = document.querySelector("#reset-layout");
 const cancelLayoutButton = document.querySelector("#cancel-layout");
 const saveLayoutButton = document.querySelector("#save-layout");
 const objectManager = document.querySelector("#object-manager");
+const objectManagerToggle = document.querySelector("#object-manager-toggle");
 const objectCount = document.querySelector("#object-count");
 const assetSearchInput = document.querySelector("#asset-search-input");
 const categoryFilter = document.querySelector("#category-filter");
@@ -66,6 +67,10 @@ let objectSequence = 0;
 let activeShadowOpacity = 0.2;
 let activeShadowBlur = 48;
 let initializationPromise = Promise.resolve(false);
+let activeObjectInteraction = null;
+let objectManagerCollapsed = false;
+let objectManagerAvoidanceFrame = null;
+let objectManagerAvoidanceLatched = false;
 
 function showToast(message, duration = 2800) {
   window.clearTimeout(toastTimer);
@@ -178,6 +183,74 @@ function getRightInset() {
 function makeObjectId() {
   objectSequence += 1;
   return `object-${Date.now().toString(36)}-${objectSequence.toString(36)}`;
+}
+
+function clearObjectManagerAvoidance() {
+  if (objectManagerAvoidanceFrame !== null) {
+    window.cancelAnimationFrame(objectManagerAvoidanceFrame);
+    objectManagerAvoidanceFrame = null;
+  }
+  objectManagerAvoidanceLatched = false;
+  objectManager.classList.remove("is-interaction-hidden");
+}
+
+function updateObjectManagerAvoidance() {
+  objectManagerAvoidanceFrame = null;
+  if (
+    !isPlacementEditor ||
+    objectManagerCollapsed ||
+    objectManagerAvoidanceLatched ||
+    !activeObjectInteraction
+  ) {
+    return;
+  }
+
+  const objectRect = activeObjectInteraction.getBoundingClientRect();
+  const managerRect = objectManager.getBoundingClientRect();
+  const proximity = 48;
+  const isNearManager =
+    objectRect.right >= managerRect.left - proximity &&
+    objectRect.left <= managerRect.right + proximity &&
+    objectRect.bottom >= managerRect.top - proximity &&
+    objectRect.top <= managerRect.bottom + proximity;
+
+  if (isNearManager) {
+    objectManagerAvoidanceLatched = true;
+    objectManager.classList.add("is-interaction-hidden");
+  }
+}
+
+function scheduleObjectManagerAvoidance() {
+  if (objectManagerAvoidanceFrame === null) {
+    objectManagerAvoidanceFrame = window.requestAnimationFrame(updateObjectManagerAvoidance);
+  }
+}
+
+function beginObjectInteraction(element) {
+  if (!isPlacementEditor) return;
+  activeObjectInteraction = element;
+  objectManagerAvoidanceLatched = false;
+  scheduleObjectManagerAvoidance();
+}
+
+function endObjectInteraction(element) {
+  if (!isPlacementEditor || activeObjectInteraction !== element) return;
+  activeObjectInteraction = null;
+  clearObjectManagerAvoidance();
+}
+
+function setObjectManagerCollapsed(collapsed) {
+  if (!isPlacementEditor) return;
+  objectManagerCollapsed = collapsed;
+  clearObjectManagerAvoidance();
+  objectManager.classList.toggle("is-collapsed", collapsed);
+  document.body.classList.toggle("is-object-manager-collapsed", collapsed);
+  objectManager.setAttribute("aria-hidden", String(collapsed));
+  objectManagerToggle.setAttribute("aria-expanded", String(!collapsed));
+
+  const label = collapsed ? "이미지 선택 창 펼치기" : "이미지 선택 창 접기";
+  objectManagerToggle.setAttribute("aria-label", label);
+  objectManagerToggle.title = label;
 }
 
 function updateSelectedObjectRemoveButton() {
@@ -356,6 +429,8 @@ function renderAssetLibrary() {
 
 const interactionController = makeDraggableGroup([], study, {
   draggable: true,
+  onInteractionEnd: endObjectInteraction,
+  onInteractionStart: beginObjectInteraction,
   onPositionChange: markLayoutChanged,
   onSelectionChange: setSelectedObject,
 });
@@ -476,6 +551,7 @@ function markLayoutChanged(selectedElement) {
   layoutRevision += 1;
   scheduleDirectLayoutSave();
   updateSelectedObjectRemoveButton();
+  if (selectedElement === activeObjectInteraction) scheduleObjectManagerAvoidance();
   updatePlacementStatus(
     `${magnifiers.length}개 오브젝트 · ${selectedElement?.dataset.label ?? "목록"} 수정됨`,
   );
@@ -545,6 +621,7 @@ if (isPlacementEditor) {
   placementToolbar.hidden = false;
   placementStatus.hidden = false;
   objectManager.hidden = false;
+  objectManagerToggle.hidden = false;
   renderCategoryFilter();
   renderAssetLibrary();
   updateLibrarySummary();
@@ -600,6 +677,10 @@ if (isPlacementEditor) {
 
   refreshLibraryButton.addEventListener("click", () => {
     void refreshAssetCatalog({ announce: true, force: true });
+  });
+
+  objectManagerToggle.addEventListener("click", () => {
+    setObjectManagerCollapsed(!objectManagerCollapsed);
   });
 
   selectedObjectRemoveButton.addEventListener("click", () => {
@@ -724,4 +805,5 @@ window.addEventListener("resize", () => {
     interactionController.keepInBounds();
   }
   updateSelectedObjectRemoveButton();
+  if (activeObjectInteraction) scheduleObjectManagerAvoidance();
 }, { passive: true });

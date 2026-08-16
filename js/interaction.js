@@ -31,7 +31,13 @@ function updateAriaValue(element, container, left) {
 export function makeDraggableGroup(
   initialElements,
   container,
-  { draggable = true, onPositionChange = () => {}, onSelectionChange = () => {} } = {},
+  {
+    draggable = true,
+    onInteractionEnd = () => {},
+    onInteractionStart = () => {},
+    onPositionChange = () => {},
+    onSelectionChange = () => {},
+  } = {},
 ) {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const elements = [...initialElements];
@@ -103,8 +109,19 @@ export function makeDraggableGroup(
 
   const attachElement = (element) => {
     if (dragStates.has(element)) return;
-    const dragState = { activePointer: null, pointerOffsetX: 0, pointerOffsetY: 0 };
+    const dragState = {
+      activePointer: null,
+      keyboardActive: false,
+      pointerOffsetX: 0,
+      pointerOffsetY: 0,
+    };
     dragStates.set(element, dragState);
+    const directions = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    };
 
     const bringToFront = () => {
       topLayer += 1;
@@ -124,6 +141,7 @@ export function makeDraggableGroup(
       element.classList.add("is-dragging");
       elements.forEach((item) => item.classList.toggle("is-selected", item === element));
       onSelectionChange(element);
+      onInteractionStart(element);
       bringToFront();
       event.preventDefault();
     });
@@ -152,20 +170,25 @@ export function makeDraggableGroup(
       if (element.hasPointerCapture(event.pointerId)) {
         element.releasePointerCapture(event.pointerId);
       }
+      onInteractionEnd(element);
     };
 
     element.addEventListener("pointerup", endDrag);
     element.addEventListener("pointercancel", endDrag);
+    element.addEventListener("lostpointercapture", endDrag);
     element.addEventListener("keydown", (event) => {
       if (!draggable) return;
-      const directions = {
-        ArrowLeft: [-1, 0],
-        ArrowRight: [1, 0],
-        ArrowUp: [0, -1],
-        ArrowDown: [0, 1],
-      };
       const direction = directions[event.key];
       if (!direction) return;
+
+      if (!dragState.keyboardActive) {
+        dragState.keyboardActive = true;
+        element.classList.add("is-dragging");
+        elements.forEach((item) => item.classList.toggle("is-selected", item === element));
+        onSelectionChange(element);
+        onInteractionStart(element);
+        bringToFront();
+      }
 
       const step = event.shiftKey ? 24 : 8;
       const currentLeft = Number.parseFloat(
@@ -186,6 +209,18 @@ export function makeDraggableGroup(
       updateAriaValue(element, container, next.left);
       onPositionChange(element);
       event.preventDefault();
+    });
+    element.addEventListener("keyup", (event) => {
+      if (!directions[event.key] || !dragState.keyboardActive) return;
+      dragState.keyboardActive = false;
+      element.classList.remove("is-dragging");
+      onInteractionEnd(element);
+    });
+    element.addEventListener("blur", () => {
+      if (!dragState.keyboardActive) return;
+      dragState.keyboardActive = false;
+      element.classList.remove("is-dragging");
+      onInteractionEnd(element);
     });
   };
 
@@ -233,6 +268,10 @@ export function makeDraggableGroup(
   const removeElement = (element) => {
     const index = elements.indexOf(element);
     if (index >= 0) elements.splice(index, 1);
+    const dragState = dragStates.get(element);
+    if (dragState && (dragState.activePointer !== null || dragState.keyboardActive)) {
+      onInteractionEnd(element);
+    }
     dragStates.delete(element);
     scheduleTilt();
   };

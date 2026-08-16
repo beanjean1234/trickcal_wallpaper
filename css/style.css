@@ -1443,7 +1443,7 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
 /* Object manager ---------------------------------------------------------- */
 
 .is-placement-editor .study {
-  --interaction-right-inset: 404px;
+  --interaction-right-inset: 0px;
 }
 
 .object-manager {
@@ -1462,10 +1462,95 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
   border-radius: 12px;
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.22);
   flex-direction: column;
+  visibility: visible;
+  will-change: opacity, transform;
+  transition:
+    opacity 160ms ease,
+    transform 240ms cubic-bezier(0.22, 0.75, 0.22, 1),
+    visibility 0s linear;
 }
 
 .object-manager[hidden] {
   display: none;
+}
+
+.object-manager.is-collapsed {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transform: translateY(calc(-100% - 112px));
+  transition:
+    opacity 160ms ease,
+    transform 240ms cubic-bezier(0.22, 0.75, 0.22, 1),
+    visibility 0s linear 240ms;
+}
+
+.object-manager.is-interaction-hidden:not(.is-collapsed) {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    opacity 140ms ease,
+    transform 240ms cubic-bezier(0.22, 0.75, 0.22, 1),
+    visibility 0s linear 140ms;
+}
+
+.object-manager-toggle {
+  position: fixed;
+  z-index: 109;
+  top: 104px;
+  right: 400px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: #f5f5f5;
+  cursor: pointer;
+  place-items: center;
+  background: #161616;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+  transition:
+    right 240ms cubic-bezier(0.22, 0.75, 0.22, 1),
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.object-manager-toggle[hidden] {
+  display: none;
+}
+
+.object-manager-toggle:hover {
+  color: #fff;
+  background: #1d1d1d;
+  border-color: #5a5a5a;
+}
+
+.object-manager-toggle:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px #0a0a0a;
+}
+
+.object-manager-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 240ms cubic-bezier(0.22, 0.75, 0.22, 1);
+}
+
+.is-object-manager-collapsed .object-manager-toggle {
+  right: 16px;
+}
+
+.is-object-manager-collapsed .object-manager-toggle svg {
+  transform: rotate(180deg);
 }
 
 .object-manager__header {
@@ -1890,6 +1975,16 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
   #refresh-library.is-loading svg {
     animation: none;
   }
+
+  .object-manager,
+  .object-manager-toggle,
+  .object-manager-toggle svg {
+    transition: none;
+  }
+
+  .object-manager.is-collapsed {
+    transform: none;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1906,6 +2001,17 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
     height: min(52svh, 420px);
     min-height: 0;
     border-radius: 10px;
+  }
+
+  .object-manager-toggle {
+    top: auto;
+    right: 10px;
+    bottom: calc(min(52svh, 420px) + 64px);
+  }
+
+  .is-object-manager-collapsed .object-manager-toggle {
+    right: 10px;
+    bottom: 64px;
   }
 
   .object-manager__header {
