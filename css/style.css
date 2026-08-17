@@ -19,6 +19,7 @@
   --lens-radius: 18px;
   --ui-radius: 18px;
   --ui-shadow: 0 24px 70px rgb(5 19 31 / 0.3);
+  --background-overlay-opacity: 0.14;
 }
 
 * {
@@ -52,6 +53,11 @@ body::before {
   background-size: 5.5vw 5.5vw;
   -webkit-mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.32), transparent 48%);
   mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.32), transparent 48%);
+  transition: opacity 180ms ease;
+}
+
+body.has-custom-background::before {
+  opacity: 0;
 }
 
 body::after {
@@ -60,12 +66,12 @@ body::after {
   inset: 0;
   pointer-events: none;
   content: "";
-  background: rgb(64 75 87 / 0.14);
+  background: rgb(64 75 87 / var(--background-overlay-opacity));
   transition: background 220ms ease;
 }
 
 body.is-placement-editor::after {
-  background: rgb(28 46 63 / 0.1);
+  background: rgb(64 75 87 / var(--background-overlay-opacity));
 }
 
 button,
@@ -85,7 +91,8 @@ input:focus-visible,
   outline-offset: 3px;
 }
 
-.background-canvas {
+.background-canvas,
+.custom-background {
   position: fixed;
   z-index: 0;
   inset: 0;
@@ -93,6 +100,31 @@ input:focus-visible,
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+.background-canvas {
+  transition: opacity 180ms ease;
+}
+
+.custom-background {
+  object-fit: cover;
+  object-position: center;
+}
+
+.custom-background[hidden] {
+  display: none;
+}
+
+body.has-custom-background .background-canvas {
+  opacity: 0;
+}
+
+body.has-custom-background.has-background-error .background-canvas {
+  opacity: 1;
+}
+
+body.has-background-error .custom-background {
+  opacity: 0;
 }
 
 .study {
@@ -1360,6 +1392,19 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
   border-color: #777;
 }
 
+.ui-button:disabled {
+  color: #777;
+  cursor: not-allowed;
+  background: #111;
+  border-color: #303030;
+}
+
+#group-edit-toggle[aria-pressed="true"] {
+  color: #000;
+  background: #fff;
+  border-color: #fff;
+}
+
 .ui-button--primary {
   color: #000;
   background: #fff;
@@ -1485,7 +1530,8 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
     visibility 0s linear 240ms;
 }
 
-.object-manager.is-interaction-hidden:not(.is-collapsed) {
+.object-manager.is-interaction-hidden:not(.is-collapsed),
+.object-manager.is-group-overlap-hidden:not(.is-collapsed) {
   opacity: 0;
   pointer-events: none;
   visibility: hidden;
@@ -1590,6 +1636,295 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
   background: #171717;
   border: 1px solid #3a3a3a;
   border-radius: 6px;
+}
+
+.manager-section {
+  flex: 0 0 auto;
+  color: var(--ui-text);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.manager-section > summary {
+  position: relative;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 36px 0 16px;
+  color: #f5f5f5;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+
+.manager-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.manager-section > summary::after {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  width: 7px;
+  height: 7px;
+  content: "";
+  border-right: 1.5px solid #aaa;
+  border-bottom: 1.5px solid #aaa;
+  transform: translateY(-65%) rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.manager-section[open] > summary::after {
+  transform: translateY(-30%) rotate(225deg);
+}
+
+.manager-section > summary:hover {
+  background: #151515;
+}
+
+.manager-section > summary:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -3px;
+}
+
+.manager-section__summary-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manager-section__content {
+  padding: 0 12px 12px;
+}
+
+.manager-section__help {
+  margin: 8px 0 0;
+  color: var(--ui-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.grid-layout-control {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) 132px 84px;
+  align-items: center;
+  gap: 8px;
+}
+
+.grid-layout-control > label,
+.background-url-control > label,
+.background-overlay-control label {
+  color: #d7d7d7;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.number-stepper {
+  display: grid;
+  height: 40px;
+  overflow: hidden;
+  grid-template-columns: 40px minmax(44px, 1fr) 40px;
+  background: #111;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+}
+
+.number-stepper button,
+.number-stepper input {
+  min-width: 0;
+  height: 38px;
+  margin: 0;
+  padding: 0;
+  color: #f5f5f5;
+  font: inherit;
+  border: 0;
+}
+
+.number-stepper button {
+  font-size: 18px;
+  cursor: pointer;
+  background: #191919;
+}
+
+.number-stepper button:hover {
+  background: #252525;
+}
+
+.number-stepper input {
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 12px;
+  text-align: center;
+  appearance: textfield;
+  background: #111;
+  border-right: 1px solid #333;
+  border-left: 1px solid #333;
+}
+
+.number-stepper input::-webkit-inner-spin-button,
+.number-stepper input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.number-stepper button:focus-visible,
+.number-stepper input:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
+.manager-action {
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  color: #f5f5f5;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  background: #1a1a1a;
+  border: 1px solid #484848;
+  border-radius: 8px;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.manager-action:hover {
+  background: #242424;
+  border-color: #707070;
+}
+
+.manager-action:disabled {
+  color: #777;
+  cursor: wait;
+  background: #111;
+  border-color: #303030;
+}
+
+.manager-action:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.manager-action--quiet {
+  color: #bbb;
+  background: transparent;
+  border-color: #333;
+}
+
+.background-file-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.background-url-control {
+  margin-top: 12px;
+}
+
+.background-url-control > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.background-url-control input {
+  min-width: 0;
+  height: 40px;
+  padding: 0 11px;
+  color: #f5f5f5;
+  font: inherit;
+  font-size: 11px;
+  background: #111;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+}
+
+.background-url-control input:hover {
+  border-color: #555;
+}
+
+.background-url-control input[aria-invalid="true"] {
+  border-color: #aaa;
+}
+
+.background-url-control input:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.background-overlay-control {
+  margin-top: 12px;
+}
+
+.background-overlay-control > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.background-overlay-control output {
+  color: #f5f5f5;
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.background-overlay-control input[type="range"] {
+  width: 100%;
+  height: 20px;
+  margin: 6px 0 0;
+  padding: 0;
+  cursor: pointer;
+  appearance: none;
+  background: transparent;
+}
+
+.background-overlay-control input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 4px;
+  background: #555;
+  border-radius: 2px;
+}
+
+.background-overlay-control input[type="range"]::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  appearance: none;
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 50%;
+}
+
+.background-overlay-control input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: #555;
+  border-radius: 2px;
+}
+
+.background-overlay-control input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 50%;
+}
+
+.background-overlay-control input[type="range"]:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .library-tools {
@@ -1852,6 +2187,83 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
   outline-offset: -4px;
 }
 
+.group-frame {
+  position: absolute;
+  z-index: 106;
+  color: #fff;
+  cursor: grab;
+  touch-action: none;
+  background: transparent;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  user-select: none;
+}
+
+.group-frame[hidden] {
+  display: none;
+}
+
+.group-frame.is-dragging {
+  cursor: grabbing;
+}
+
+.group-frame:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 1px #000, 0 0 0 5px #000;
+}
+
+.group-frame__spacing-handle {
+  position: absolute;
+  top: -22px;
+  right: -22px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: #fff;
+  cursor: nesw-resize;
+  place-items: center;
+  touch-action: none;
+  background: transparent;
+  border: 0;
+}
+
+.group-frame__spacing-handle::before {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  content: "";
+  background: #0a0a0a;
+  border: 1px solid #fff;
+  border-radius: 4px;
+}
+
+.group-frame__spacing-handle:hover::before,
+.group-frame__spacing-handle:focus-visible::before {
+  background: #222;
+}
+
+.group-frame__spacing-handle:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.group-frame__spacing-handle svg {
+  position: relative;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+.is-group-editing .magnifier {
+  cursor: default;
+}
+
 .selected-object-remove {
   position: absolute;
   z-index: 107;
@@ -1978,7 +2390,11 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
 
   .object-manager,
   .object-manager-toggle,
-  .object-manager-toggle svg {
+  .object-manager-toggle svg,
+  .manager-section > summary::after,
+  .background-canvas,
+  body::before,
+  body::after {
     transition: none;
   }
 
@@ -2028,6 +2444,14 @@ html.is-pointer-input body:not(.is-placement-editor) .magnifier:focus-visible {
 }
 
 @media (max-width: 480px) {
+  .grid-layout-control {
+    grid-template-columns: minmax(72px, 1fr) 132px;
+  }
+
+  .grid-layout-control .manager-action {
+    grid-column: 1 / -1;
+  }
+
   .asset-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

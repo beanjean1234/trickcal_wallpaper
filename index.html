@@ -9,6 +9,7 @@
   </head>
   <body>
     <canvas class="background-canvas" id="background-canvas" aria-hidden="true"></canvas>
+    <img class="custom-background" id="custom-background" alt="" aria-hidden="true" />
 
     <main class="study" id="study">
       <header class="placement-toolbar" id="placement-toolbar" hidden>
@@ -26,6 +27,15 @@
         <p class="placement-toolbar__hint">이미지를 선택해 추가·해제하고, 오브젝트를 드래그해 배치하세요.</p>
 
         <div class="placement-toolbar__actions">
+          <button
+            class="ui-button ui-button--secondary"
+            id="group-edit-toggle"
+            type="button"
+            aria-pressed="false"
+            disabled
+          >
+            그룹 조작
+          </button>
           <button class="ui-button ui-button--quiet" id="reset-layout" type="button">
             초기 배치
           </button>
@@ -49,6 +59,72 @@
           </div>
           <span class="object-manager__count" id="object-count">0</span>
         </div>
+
+        <details class="manager-section manager-section--layout" open>
+          <summary>
+            <span>배치 도구</span>
+            <span class="manager-section__summary-value" id="grid-shape">0개</span>
+          </summary>
+          <div class="manager-section__content">
+            <div class="grid-layout-control">
+              <label for="grid-columns">한 줄 개수</label>
+              <div class="number-stepper">
+                <button id="grid-columns-decrease" type="button" aria-label="한 줄 개수 줄이기">−</button>
+                <input id="grid-columns" type="number" min="1" max="12" step="1" value="4" inputmode="numeric" />
+                <button id="grid-columns-increase" type="button" aria-label="한 줄 개수 늘리기">+</button>
+              </div>
+              <button class="manager-action" id="apply-grid" type="button">격자 적용</button>
+            </div>
+            <p class="manager-section__help">
+              격자를 적용한 뒤 상단의 그룹 조작을 켜면 전체 이동과 간격 조절이 가능합니다.
+            </p>
+          </div>
+        </details>
+
+        <details class="manager-section manager-section--background">
+          <summary>
+            <span>배경</span>
+            <span class="manager-section__summary-value" id="background-summary">기본 배경</span>
+          </summary>
+          <div class="manager-section__content">
+            <div class="background-file-actions">
+              <button class="manager-action" id="background-file-button" type="button">이미지·GIF 선택</button>
+              <button class="manager-action manager-action--quiet" id="background-clear" type="button">기본 배경</button>
+              <input
+                id="background-file-input"
+                type="file"
+                accept=".gif,.jpeg,.jpg,.png,.webp,image/gif,image/jpeg,image/png,image/webp"
+                hidden
+              />
+            </div>
+
+            <div class="background-url-control">
+              <label for="background-url-input">이미지 또는 GIF URL</label>
+              <div>
+                <input
+                  id="background-url-input"
+                  type="url"
+                  inputmode="url"
+                  placeholder="https://example.com/background.gif"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button class="manager-action" id="background-url-apply" type="button">적용</button>
+              </div>
+            </div>
+
+            <div class="background-overlay-control">
+              <div>
+                <label for="background-overlay">회색 오버레이</label>
+                <output id="background-overlay-value" for="background-overlay">14%</output>
+              </div>
+              <input id="background-overlay" type="range" min="0" max="70" step="1" value="14" />
+            </div>
+            <p class="manager-section__help" id="background-status" role="status">
+              현재 WebGL 기본 배경을 사용 중입니다.
+            </p>
+          </div>
+        </details>
 
         <div class="library-tools" aria-label="이미지 라이브러리 관리">
           <button class="library-tools__button" id="open-library" type="button">
@@ -121,6 +197,26 @@
           <path d="M7 7 17 17M17 7 7 17" />
         </svg>
       </button>
+
+      <div
+        class="group-frame"
+        id="group-frame"
+        tabindex="0"
+        aria-label="오브젝트 그룹. 안쪽을 드래그하면 전체를 이동합니다."
+        hidden
+      >
+        <button
+          class="group-frame__spacing-handle"
+          id="group-spacing-handle"
+          type="button"
+          aria-label="오브젝트 가로와 세로 간격 조절"
+          title="드래그하여 오브젝트 간격 조절"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 17 17 7M12 18 18 12M6 12 12 6" />
+          </svg>
+        </button>
+      </div>
 
       <div class="placement-status" id="placement-status" hidden>
         <span id="placement-status-text">0개 오브젝트 · 변경사항 없음</span>

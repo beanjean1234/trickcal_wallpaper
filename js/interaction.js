@@ -32,6 +32,7 @@ export function makeDraggableGroup(
   initialElements,
   container,
   {
+    canDragElement = () => true,
     draggable = true,
     onInteractionEnd = () => {},
     onInteractionStart = () => {},
@@ -130,7 +131,7 @@ export function makeDraggableGroup(
 
     element.addEventListener("focus", bringToFront);
     element.addEventListener("pointerdown", (event) => {
-      if (!draggable) return;
+      if (!draggable || !canDragElement(element, event)) return;
       if (event.button !== 0 && event.pointerType === "mouse") return;
 
       const elementRect = element.getBoundingClientRect();
@@ -177,7 +178,7 @@ export function makeDraggableGroup(
     element.addEventListener("pointercancel", endDrag);
     element.addEventListener("lostpointercapture", endDrag);
     element.addEventListener("keydown", (event) => {
-      if (!draggable) return;
+      if (!draggable || !canDragElement(element, event)) return;
       const direction = directions[event.key];
       if (!direction) return;
 

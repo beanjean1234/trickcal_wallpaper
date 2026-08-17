@@ -1,9 +1,11 @@
 import { createBackgroundRenderer } from "./background.js";
+import { createGroupFrameController } from "./group.js";
 import { makeDraggableGroup } from "./interaction.js";
 import {
   applyLayout,
   captureLayout,
   closePlacementEditor,
+  getBackgroundAssetUrl,
   getLibraryAssetUrl,
   importImagePack,
   loadAssetCatalog,
@@ -11,6 +13,7 @@ import {
   openImageLibrary,
   openPlacementEditor,
   saveLayout,
+  uploadBackground,
 } from "./layout.js";
 import {
   buildFrontSpecularMap,
@@ -20,6 +23,7 @@ import {
 } from "./scene.js";
 
 const study = document.querySelector("#study");
+const customBackground = document.querySelector("#custom-background");
 const magnifierTemplate = document.querySelector("#magnifier-template");
 const placementToolbar = document.querySelector("#placement-toolbar");
 const placementStatus = document.querySelector("#placement-status");
@@ -27,6 +31,9 @@ const placementStatusText = document.querySelector("#placement-status-text");
 const resetLayoutButton = document.querySelector("#reset-layout");
 const cancelLayoutButton = document.querySelector("#cancel-layout");
 const saveLayoutButton = document.querySelector("#save-layout");
+const groupEditToggle = document.querySelector("#group-edit-toggle");
+const groupFrame = document.querySelector("#group-frame");
+const groupSpacingHandle = document.querySelector("#group-spacing-handle");
 const objectManager = document.querySelector("#object-manager");
 const objectManagerToggle = document.querySelector("#object-manager-toggle");
 const objectCount = document.querySelector("#object-count");
@@ -40,6 +47,20 @@ const importPackButton = document.querySelector("#import-pack");
 const refreshLibraryButton = document.querySelector("#refresh-library");
 const imagePackInput = document.querySelector("#image-pack-input");
 const selectedObjectRemoveButton = document.querySelector("#selected-object-remove");
+const gridColumnsInput = document.querySelector("#grid-columns");
+const gridColumnsDecrease = document.querySelector("#grid-columns-decrease");
+const gridColumnsIncrease = document.querySelector("#grid-columns-increase");
+const applyGridButton = document.querySelector("#apply-grid");
+const gridShape = document.querySelector("#grid-shape");
+const backgroundSummary = document.querySelector("#background-summary");
+const backgroundFileButton = document.querySelector("#background-file-button");
+const backgroundFileInput = document.querySelector("#background-file-input");
+const backgroundClearButton = document.querySelector("#background-clear");
+const backgroundUrlInput = document.querySelector("#background-url-input");
+const backgroundUrlApplyButton = document.querySelector("#background-url-apply");
+const backgroundOverlayInput = document.querySelector("#background-overlay");
+const backgroundOverlayValue = document.querySelector("#background-overlay-value");
+const backgroundStatus = document.querySelector("#background-status");
 const toast = document.querySelector("#toast");
 const isPlacementEditor = new URLSearchParams(location.search).get("mode") === "placement";
 const magnifiers = [];
@@ -71,6 +92,14 @@ let activeObjectInteraction = null;
 let objectManagerCollapsed = false;
 let objectManagerAvoidanceFrame = null;
 let objectManagerAvoidanceLatched = false;
+let groupEditActive = false;
+let groupController = null;
+let activeBackground = {
+  mode: "shader",
+  value: "",
+  revision: "",
+  overlayOpacity: 0.14,
+};
 
 function showToast(message, duration = 2800) {
   window.clearTimeout(toastTimer);
@@ -93,6 +122,83 @@ function normalizeCatalog(catalog) {
       typeof asset.file === "string")
     : [];
   return { categories, assets };
+}
+
+function normalizeBackgroundConfiguration(background) {
+  const overlayOpacity = Number(background?.overlayOpacity);
+  const normalizedOverlay = Number.isFinite(overlayOpacity)
+    ? Math.min(0.7, Math.max(0, overlayOpacity))
+    : 0.14;
+  const mode = String(background?.mode ?? "shader");
+
+  if (mode === "local" && typeof background?.value === "string" && background.value) {
+    return {
+      mode,
+      value: background.value,
+      revision: String(background.revision ?? ""),
+      overlayOpacity: normalizedOverlay,
+    };
+  }
+
+  if (mode === "url") {
+    const value = String(background?.value ?? "").trim();
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return { mode, value: parsed.href, revision: "", overlayOpacity: normalizedOverlay };
+      }
+    } catch {
+      // Use the shader fallback below.
+    }
+  }
+
+  return { mode: "shader", value: "", revision: "", overlayOpacity: normalizedOverlay };
+}
+
+function updateBackgroundControls() {
+  if (!isPlacementEditor) return;
+  const percentage = Math.round(activeBackground.overlayOpacity * 100);
+  backgroundOverlayInput.value = String(percentage);
+  backgroundOverlayValue.textContent = `${percentage}%`;
+  backgroundUrlInput.value = activeBackground.mode === "url" ? activeBackground.value : "";
+
+  if (activeBackground.mode === "local") {
+    backgroundSummary.textContent = "개인 파일";
+    backgroundStatus.textContent = `${activeBackground.value} 파일을 배경으로 사용 중입니다.`;
+  } else if (activeBackground.mode === "url") {
+    backgroundSummary.textContent = "URL 배경";
+    backgroundStatus.textContent = "입력한 URL의 이미지 또는 GIF를 배경으로 사용 중입니다.";
+  } else {
+    backgroundSummary.textContent = "기본 배경";
+    backgroundStatus.textContent = "현재 WebGL 기본 배경을 사용 중입니다.";
+  }
+}
+
+function applyBackground(background, { syncControls = true } = {}) {
+  activeBackground = normalizeBackgroundConfiguration(background);
+  const hasCustomBackground = activeBackground.mode !== "shader";
+  document.body.classList.remove("has-background-error");
+  document.body.classList.toggle("has-custom-background", hasCustomBackground);
+  document.body.style.setProperty(
+    "--background-overlay-opacity",
+    activeBackground.overlayOpacity.toFixed(3),
+  );
+
+  if (hasCustomBackground) {
+    customBackground.src = activeBackground.mode === "local"
+      ? getBackgroundAssetUrl(activeBackground.value, activeBackground.revision)
+      : activeBackground.value;
+    customBackground.hidden = false;
+  } else {
+    customBackground.hidden = true;
+    customBackground.removeAttribute("src");
+  }
+
+  if (syncControls) updateBackgroundControls();
+}
+
+function captureCurrentLayout() {
+  return captureLayout(magnifiers, study, activeBackground);
 }
 
 function updateLibrarySummary() {
@@ -194,6 +300,22 @@ function clearObjectManagerAvoidance() {
   objectManager.classList.remove("is-interaction-hidden");
 }
 
+function updateGroupManagerAvoidance() {
+  if (!isPlacementEditor) return;
+  let shouldHide = false;
+  if (groupEditActive && !objectManagerCollapsed && !groupFrame.hidden) {
+    const frameRect = groupFrame.getBoundingClientRect();
+    const managerRect = objectManager.getBoundingClientRect();
+    const proximity = 12;
+    shouldHide =
+      frameRect.right >= managerRect.left - proximity &&
+      frameRect.left <= managerRect.right + proximity &&
+      frameRect.bottom >= managerRect.top - proximity &&
+      frameRect.top <= managerRect.bottom + proximity;
+  }
+  objectManager.classList.toggle("is-group-overlap-hidden", shouldHide);
+}
+
 function updateObjectManagerAvoidance() {
   objectManagerAvoidanceFrame = null;
   if (
@@ -251,12 +373,57 @@ function setObjectManagerCollapsed(collapsed) {
   const label = collapsed ? "이미지 선택 창 펼치기" : "이미지 선택 창 접기";
   objectManagerToggle.setAttribute("aria-label", label);
   objectManagerToggle.title = label;
+  updateGroupManagerAvoidance();
+}
+
+function getRequestedGridColumns() {
+  const requested = Number.parseInt(gridColumnsInput.value, 10);
+  return Math.min(12, Math.max(1, Number.isFinite(requested) ? requested : 4));
+}
+
+function setRequestedGridColumns(value) {
+  gridColumnsInput.value = String(Math.min(12, Math.max(1, Number(value) || 1)));
+  updateGridShape();
+}
+
+function updateGridShape() {
+  if (!isPlacementEditor) return;
+  const columns = Math.min(getRequestedGridColumns(), Math.max(1, magnifiers.length));
+  const rows = magnifiers.length > 0 ? Math.ceil(magnifiers.length / columns) : 0;
+  gridShape.textContent = magnifiers.length > 0
+    ? `${columns} × ${rows} · ${magnifiers.length}개`
+    : "0개";
+}
+
+function updateGroupControls() {
+  if (!isPlacementEditor) return;
+  const canGroup = magnifiers.length >= 2;
+  groupEditToggle.disabled = !canGroup;
+  if (!canGroup && groupEditActive) setGroupEditActive(false);
+  groupController?.refresh();
+  updateGroupManagerAvoidance();
+  updateGridShape();
+}
+
+function setGroupEditActive(active) {
+  if (!isPlacementEditor || !groupController) return false;
+  groupEditActive = groupController.setActive(Boolean(active));
+  document.body.classList.toggle("is-group-editing", groupEditActive);
+  groupEditToggle.setAttribute("aria-pressed", String(groupEditActive));
+  groupEditToggle.textContent = groupEditActive ? "자유 배치" : "그룹 조작";
+  if (groupEditActive) setSelectedObject(null);
+  updateSelectedObjectRemoveButton();
+  updateGroupManagerAvoidance();
+  updatePlacementStatus(
+    `${magnifiers.length}개 오브젝트 · ${groupEditActive ? "그룹 조작 중" : "자유 배치"}`,
+  );
+  return groupEditActive;
 }
 
 function updateSelectedObjectRemoveButton() {
   if (!isPlacementEditor) return;
   const element = magnifiers.find((item) => item.dataset.icon === selectedObjectId);
-  selectedObjectRemoveButton.hidden = !element;
+  selectedObjectRemoveButton.hidden = !element || groupEditActive;
   if (!element) return;
 
   const buttonRadius = 22;
@@ -428,11 +595,22 @@ function renderAssetLibrary() {
 }
 
 const interactionController = makeDraggableGroup([], study, {
+  canDragElement: () => !groupEditActive,
   draggable: true,
   onInteractionEnd: endObjectInteraction,
   onInteractionStart: beginObjectInteraction,
   onPositionChange: markLayoutChanged,
   onSelectionChange: setSelectedObject,
+});
+
+groupController = createGroupFrameController(groupFrame, groupSpacingHandle, study, {
+  getElements: () => magnifiers,
+  onInteractionStart: () => {
+    setSelectedObject(null);
+    beginObjectInteraction(groupFrame);
+  },
+  onInteractionEnd: () => endObjectInteraction(groupFrame),
+  onPositionChange: () => markLayoutChanged(groupFrame),
 });
 
 function createMagnifier(object) {
@@ -457,6 +635,7 @@ function createMagnifier(object) {
   study.append(magnifier);
   buildPlateWalls(magnifier);
   interactionController.addElement(magnifier);
+  updateGroupControls();
   return magnifier;
 }
 
@@ -468,12 +647,14 @@ function removeMagnifier(element) {
   if (selectedObjectId === element.dataset.icon) selectedObjectId = null;
   renderAssetLibrary();
   updateSelectedObjectRemoveButton();
+  updateGroupControls();
 }
 
-function arrangeMagnifiers() {
+function arrangeMagnifiers(requestedColumns = null) {
   if (magnifiers.length === 0) {
     study.style.minHeight = "100svh";
-    return;
+    updateGroupControls();
+    return 0;
   }
 
   const lensWidth = magnifiers[0].offsetWidth;
@@ -490,12 +671,11 @@ function arrangeMagnifiers() {
     1,
     Math.floor((usableWidth + gap) / (lensWidth + gap)),
   );
-  const columns = Math.min(4, fittingColumns, magnifiers.length);
+  const desiredColumns = requestedColumns === null ? 4 : requestedColumns;
+  const columns = Math.min(desiredColumns, fittingColumns, magnifiers.length);
   const rows = Math.ceil(magnifiers.length / columns);
-  const gridWidth = columns * lensWidth + (columns - 1) * gap;
   const gridHeight = rows * lensHeight + (rows - 1) * gap;
   const contentWidth = study.clientWidth - getRightInset();
-  const startX = Math.max(0, (contentWidth - gridWidth) / 2);
   const usableHeight = window.innerHeight - topInset - bottomInset;
   const startY = gridHeight <= usableHeight
     ? topInset + Math.max(0, (usableHeight - gridHeight) / 2)
@@ -509,10 +689,16 @@ function arrangeMagnifiers() {
   magnifiers.forEach((magnifier, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
-    magnifier.style.left = `${startX + column * (lensWidth + gap)}px`;
+    const rowCount = Math.min(columns, magnifiers.length - row * columns);
+    const rowWidth = rowCount * lensWidth + (rowCount - 1) * gap;
+    const rowStartX = Math.max(0, (contentWidth - rowWidth) / 2);
+    magnifier.style.left = `${rowStartX + column * (lensWidth + gap)}px`;
     magnifier.style.top = `${startY + row * (lensHeight + gap)}px`;
   });
   updateSelectedObjectRemoveButton();
+  groupController?.refresh();
+  updateGroupControls();
+  return columns;
 }
 
 function placeNewMagnifier(element) {
@@ -539,25 +725,27 @@ function scheduleDirectLayoutSave() {
   if (isPlacementEditor) return;
   window.clearTimeout(directSaveTimer);
   directSaveTimer = window.setTimeout(() => {
-    const layout = captureLayout(magnifiers, study);
+    const layout = captureCurrentLayout();
     void persistDirectLayout(layout, layoutRevision);
   }, 320);
 }
 
 function markLayoutChanged(selectedElement) {
-  activeLayout = captureLayout(magnifiers, study);
+  activeLayout = captureCurrentLayout();
   activeLayoutTimestamp = activeLayout.updatedAt;
   layoutDirty = true;
   layoutRevision += 1;
   scheduleDirectLayoutSave();
   updateSelectedObjectRemoveButton();
   if (selectedElement === activeObjectInteraction) scheduleObjectManagerAvoidance();
+  if (groupEditActive) updateGroupManagerAvoidance();
   updatePlacementStatus(
     `${magnifiers.length}개 오브젝트 · ${selectedElement?.dataset.label ?? "목록"} 수정됨`,
   );
 }
 
 function reconcileLayoutObjects(layout) {
+  applyBackground(layout.background);
   const seenAssets = new Set();
   const objects = layout.objects.filter((object) => {
     if (!assetByFile.has(object.asset) || seenAssets.has(object.asset)) return false;
@@ -583,6 +771,7 @@ function reconcileLayoutObjects(layout) {
   updatePlacementStatus(`${magnifiers.length}개 오브젝트 · 변경사항 없음`);
   const applied = applyLayout({ ...layout, objects }, magnifiers, study);
   updateSelectedObjectRemoveButton();
+  updateGroupControls();
   return applied;
 }
 
@@ -616,6 +805,18 @@ async function launchPlacementEditor() {
 
 createBackgroundRenderer(document.querySelector("#background-canvas"));
 buildFrontSpecularMap();
+applyBackground(activeBackground);
+
+customBackground.addEventListener("load", () => {
+  document.body.classList.remove("has-background-error");
+});
+customBackground.addEventListener("error", () => {
+  if (activeBackground.mode === "shader") return;
+  document.body.classList.add("has-background-error");
+  if (isPlacementEditor) {
+    backgroundStatus.textContent = "배경을 불러오지 못해 WebGL 기본 배경을 표시합니다.";
+  }
+});
 
 if (isPlacementEditor) {
   placementToolbar.hidden = false;
@@ -625,6 +826,8 @@ if (isPlacementEditor) {
   renderCategoryFilter();
   renderAssetLibrary();
   updateLibrarySummary();
+  updateGroupControls();
+  updateBackgroundControls();
   updatePlacementStatus("0개 오브젝트 · 변경사항 없음");
 
   assetSearchInput.addEventListener("input", () => {
@@ -683,6 +886,111 @@ if (isPlacementEditor) {
     setObjectManagerCollapsed(!objectManagerCollapsed);
   });
 
+  groupEditToggle.addEventListener("click", () => {
+    setGroupEditActive(!groupEditActive);
+  });
+
+  gridColumnsInput.addEventListener("input", () => {
+    setRequestedGridColumns(gridColumnsInput.value);
+  });
+  gridColumnsDecrease.addEventListener("click", () => {
+    setRequestedGridColumns(getRequestedGridColumns() - 1);
+  });
+  gridColumnsIncrease.addEventListener("click", () => {
+    setRequestedGridColumns(getRequestedGridColumns() + 1);
+  });
+  applyGridButton.addEventListener("click", () => {
+    const requestedColumns = getRequestedGridColumns();
+    const appliedColumns = arrangeMagnifiers(requestedColumns);
+    if (appliedColumns === 0) {
+      showToast("먼저 오브젝트를 두 개 이상 추가해 주세요.");
+      return;
+    }
+    setRequestedGridColumns(appliedColumns);
+    setSelectedObject(null);
+    markLayoutChanged();
+    if (magnifiers.length >= 2) setGroupEditActive(true);
+    showToast(`${appliedColumns}열 격자로 정렬했습니다.`);
+  });
+
+  backgroundFileButton.addEventListener("click", () => backgroundFileInput.click());
+  backgroundFileInput.addEventListener("change", async () => {
+    const [file] = backgroundFileInput.files;
+    backgroundFileInput.value = "";
+    if (!file) return;
+    if (!/\.(gif|jpe?g|png|webp)$/i.test(file.name)) {
+      showToast("GIF, JPG, PNG 또는 WebP 파일을 선택해 주세요.", 4200);
+      return;
+    }
+    if (file.size > 128 * 1024 * 1024) {
+      showToast("배경 파일은 128MB 이하여야 합니다.", 4200);
+      return;
+    }
+
+    backgroundFileButton.disabled = true;
+    backgroundFileButton.setAttribute("aria-busy", "true");
+    backgroundStatus.textContent = "배경 파일을 컨트롤러에 복사하는 중입니다.";
+    try {
+      const result = await uploadBackground(file);
+      applyBackground({
+        mode: "local",
+        value: result.background.file,
+        revision: result.background.revision,
+        overlayOpacity: activeBackground.overlayOpacity,
+      });
+      markLayoutChanged();
+      showToast("개인 배경 파일을 적용했습니다.");
+    } catch {
+      backgroundStatus.textContent = "배경 파일을 저장하지 못했습니다.";
+      showToast("업데이트된 컨트롤러가 실행 중인지 확인해 주세요.", 4800);
+    } finally {
+      backgroundFileButton.disabled = false;
+      backgroundFileButton.setAttribute("aria-busy", "false");
+    }
+  });
+
+  backgroundUrlApplyButton.addEventListener("click", () => {
+    const candidate = normalizeBackgroundConfiguration({
+      mode: "url",
+      value: backgroundUrlInput.value,
+      overlayOpacity: activeBackground.overlayOpacity,
+    });
+    if (candidate.mode !== "url") {
+      backgroundUrlInput.setAttribute("aria-invalid", "true");
+      showToast("http:// 또는 https://로 시작하는 이미지 URL을 입력해 주세요.", 4200);
+      return;
+    }
+    backgroundUrlInput.removeAttribute("aria-invalid");
+    applyBackground(candidate);
+    markLayoutChanged();
+    showToast("URL 배경을 적용했습니다.");
+  });
+
+  backgroundUrlInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    backgroundUrlApplyButton.click();
+    event.preventDefault();
+  });
+
+  backgroundClearButton.addEventListener("click", () => {
+    applyBackground({
+      mode: "shader",
+      overlayOpacity: activeBackground.overlayOpacity,
+    });
+    markLayoutChanged();
+    showToast("WebGL 기본 배경으로 되돌렸습니다.");
+  });
+
+  backgroundOverlayInput.addEventListener("input", () => {
+    const overlayOpacity = Number(backgroundOverlayInput.value) / 100;
+    applyBackground({ ...activeBackground, overlayOpacity }, { syncControls: false });
+    backgroundOverlayValue.textContent = `${backgroundOverlayInput.value}%`;
+  });
+  backgroundOverlayInput.addEventListener("change", () => {
+    updateBackgroundControls();
+    markLayoutChanged();
+  });
+
   selectedObjectRemoveButton.addEventListener("click", () => {
     const element = magnifiers.find((item) => item.dataset.icon === selectedObjectId);
     if (!element) return;
@@ -724,7 +1032,7 @@ if (isPlacementEditor) {
 
   saveLayoutButton.addEventListener("click", async () => {
     saveLayoutButton.disabled = true;
-    const layout = captureLayout(magnifiers, study);
+    const layout = captureCurrentLayout();
     try {
       const saved = await saveLayout(layout);
       activeLayout = saved.layout ?? layout;
@@ -745,7 +1053,12 @@ if (isPlacementEditor) {
 
 initializationPromise = refreshAssetCatalog().then(() => syncSavedLayout({ silent: true })).then((loaded) => {
   if (!loaded) {
-    activeLayout = { version: 2, updatedAt: null, objects: [] };
+    activeLayout = {
+      version: 3,
+      updatedAt: null,
+      background: activeBackground,
+      objects: [],
+    };
     arrangeMagnifiers();
     renderAssetLibrary();
   }
@@ -805,5 +1118,6 @@ window.addEventListener("resize", () => {
     interactionController.keepInBounds();
   }
   updateSelectedObjectRemoveButton();
+  groupController?.refresh();
   if (activeObjectInteraction) scheduleObjectManagerAvoidance();
 }, { passive: true });

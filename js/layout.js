@@ -59,10 +59,11 @@ function getLayoutBounds(element, container) {
   };
 }
 
-export function captureLayout(elements, container) {
+export function captureLayout(elements, container, background = null) {
   return {
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
+    ...(background ? { background } : {}),
     objects: elements.map((element) => {
       const { maxX, maxY } = getLayoutBounds(element, container);
       const left = Number.parseFloat(element.style.left) || 0;
@@ -121,6 +122,12 @@ export function getLibraryAssetUrl(file, revision = "") {
   return `${getControllerUrl(`/library/${encodedPath}`)}${version}`;
 }
 
+export function getBackgroundAssetUrl(file, revision = "") {
+  const encodedFile = encodeURIComponent(String(file ?? ""));
+  const version = revision ? `?v=${encodeURIComponent(revision)}` : "";
+  return `${getControllerUrl(`/background/${encodedFile}`)}${version}`;
+}
+
 export async function saveLayout(layout) {
   const response = await controllerRequest("/api/layout", {
     method: "POST",
@@ -159,6 +166,19 @@ export async function importImagePack(file) {
     method: "POST",
     body: file,
     headers: { "Content-Type": "application/zip" },
+    timeout: 120000,
+  });
+  return response.json();
+}
+
+export async function uploadBackground(file) {
+  const response = await controllerRequest("/api/background", {
+    method: "POST",
+    body: file,
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Background-Filename": encodeURIComponent(file.name),
+    },
     timeout: 120000,
   });
   return response.json();

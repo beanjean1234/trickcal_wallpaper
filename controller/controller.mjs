@@ -23,13 +23,16 @@ const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppDat
 const dataRoot = process.env.TRICKCAL_DATA_ROOT || path.join(localAppData, "TrickcalWallpaper");
 const layoutPath = path.join(dataRoot, "layout.json");
 const libraryRoot = process.env.TRICKCAL_LIBRARY_ROOT || path.join(dataRoot, "Library");
+const backgroundRoot = path.join(dataRoot, "Background");
 const requestLogPath = path.join(dataRoot, "controller-requests.log");
 const pidPath = path.join(controllerDirectory, "controller.pid");
 const chromeProfile = path.join(dataRoot, "ChromePlacementProfileVisibleV1");
 const edgeProfile = path.join(dataRoot, "EdgePlacementProfileVisibleV2");
 const controllerHeader = "x-trickcal-controller";
 const supportedImageExtensions = new Set([".jpeg", ".jpg", ".png", ".webp"]);
+const supportedBackgroundExtensions = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
 const maxPackSize = 128 * 1024 * 1024;
+const maxBackgroundSize = 128 * 1024 * 1024;
 const allowedOrigins = new Set([
   "null",
   "file://",
@@ -40,6 +43,7 @@ const allowedOrigins = new Set([
 
 const mimeTypes = new Map([
   [".css", "text/css; charset=utf-8"],
+  [".gif", "image/gif"],
   [".html", "text/html; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
@@ -69,7 +73,10 @@ function applyCors(request, response) {
   if (isAllowedOrigin(origin)) {
     if (origin) response.setHeader("Access-Control-Allow-Origin", origin);
     response.setHeader("Vary", "Origin");
-    response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Trickcal-Controller");
+    response.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, X-Trickcal-Controller, X-Background-Filename",
+    );
     response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     response.setHeader("Access-Control-Allow-Private-Network", "true");
     response.setHeader("Access-Control-Max-Age", "600");
@@ -150,6 +157,86 @@ function normalizeRelativeAsset(value) {
     return null;
   }
   return segments.join("/");
+}
+
+function normalizeBackgroundFile(value) {
+  const normalized = String(value ?? "").normalize("NFC");
+  if (
+    !normalized ||
+    normalized.length > 120 ||
+    path.basename(normalized) !== normalized ||
+    /[\u0000-\u001f\u007f]/.test(normalized) ||
+    !supportedBackgroundExtensions.has(path.extname(normalized).toLowerCase())
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeBackground(candidate) {
+  const overlayOpacity = Number(candidate?.overlayOpacity);
+  const normalizedOverlay = Number.isFinite(overlayOpacity)
+    ? Math.min(0.7, Math.max(0, overlayOpacity))
+    : 0.14;
+  const mode = String(candidate?.mode ?? "shader");
+
+  if (mode === "local") {
+    const value = normalizeBackgroundFile(candidate?.value);
+    if (value) {
+      return {
+        mode,
+        value,
+        revision: String(candidate?.revision ?? "").slice(0, 80),
+        overlayOpacity: normalizedOverlay,
+      };
+    }
+  }
+
+  if (mode === "url") {
+    const value = String(candidate?.value ?? "").trim().slice(0, 2048);
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return { mode, value: parsed.href, revision: "", overlayOpacity: normalizedOverlay };
+      }
+    } catch {
+      // Fall back to the built-in shader background.
+    }
+  }
+
+  return { mode: "shader", value: "", revision: "", overlayOpacity: normalizedOverlay };
+}
+
+async function saveBackgroundFile(buffer, encodedName) {
+  let originalName;
+  try {
+    originalName = decodeURIComponent(String(encodedName ?? ""));
+  } catch {
+    throw new Error("Invalid background filename");
+  }
+
+  const extension = path.extname(originalName).toLowerCase();
+  if (!supportedBackgroundExtensions.has(extension)) {
+    throw new Error("Unsupported background image format");
+  }
+
+  await mkdir(backgroundRoot, { recursive: true });
+  const storedFile = `wallpaper-background${extension}`;
+  const entries = await readdir(backgroundRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile() || !supportedBackgroundExtensions.has(path.extname(entry.name).toLowerCase())) {
+      continue;
+    }
+    await rm(path.join(backgroundRoot, entry.name), { force: true });
+  }
+
+  const destinationPath = path.join(backgroundRoot, storedFile);
+  await writeFile(destinationPath, buffer);
+  const details = await stat(destinationPath);
+  return {
+    file: storedFile,
+    revision: `${Math.floor(details.mtimeMs).toString(36)}-${details.size.toString(36)}`,
+  };
 }
 
 async function collectLibraryImages(directory, relativeDirectory = "", assets = []) {
@@ -363,8 +450,9 @@ function normalizeLayout(candidate) {
   }
 
   return {
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
+    background: normalizeBackground(candidate.background),
     objects,
   };
 }
@@ -374,7 +462,12 @@ async function readLayout() {
     return JSON.parse(await readFile(layoutPath, "utf8"));
   } catch (error) {
     if (error.code !== "ENOENT") console.error("Could not read layout:", error.message);
-    return { version: 2, updatedAt: null, objects: [] };
+    return {
+      version: 3,
+      updatedAt: null,
+      background: normalizeBackground(null),
+      objects: [],
+    };
   }
 }
 
@@ -559,6 +652,46 @@ async function sendLibraryAsset(requestPath, response) {
   }
 }
 
+async function sendBackgroundAsset(requestPath, response) {
+  let relativeFile;
+  try {
+    relativeFile = decodeURIComponent(requestPath.replace(/^\/background\//, ""));
+  } catch {
+    sendJson(response, 400, { error: "Invalid background path" });
+    return;
+  }
+
+  const file = normalizeBackgroundFile(relativeFile);
+  if (!file) {
+    sendJson(response, 404, { error: "Background not found" });
+    return;
+  }
+
+  const resolvedPath = path.resolve(backgroundRoot, file);
+  const backgroundPrefix = `${path.resolve(backgroundRoot)}${path.sep}`;
+  if (!resolvedPath.startsWith(backgroundPrefix)) {
+    sendJson(response, 403, { error: "Forbidden" });
+    return;
+  }
+
+  try {
+    const details = await stat(resolvedPath);
+    if (!details.isFile()) throw Object.assign(new Error("Not found"), { code: "ENOENT" });
+    const body = await readFile(resolvedPath);
+    response.writeHead(200, {
+      "Content-Type": mimeTypes.get(path.extname(resolvedPath).toLowerCase()) || "application/octet-stream",
+      "Content-Length": body.length,
+      "Cache-Control": "no-store",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    });
+    response.end(body);
+  } catch (error) {
+    sendJson(response, error.code === "ENOENT" ? 404 : 500, {
+      error: error.code === "ENOENT" ? "Background not found" : "Could not load the background",
+    });
+  }
+}
+
 const server = createServer(async (request, response) => {
   try {
     const corsAllowed = applyCors(request, response);
@@ -583,7 +716,7 @@ const server = createServer(async (request, response) => {
       }
 
       if (request.method === "GET" && url.pathname === "/api/health") {
-        sendJson(response, 200, { ok: true, version: 3, libraryPath: libraryRoot });
+        sendJson(response, 200, { ok: true, version: 4, libraryPath: libraryRoot });
         return;
       }
 
@@ -627,6 +760,15 @@ const server = createServer(async (request, response) => {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/background") {
+        const background = await saveBackgroundFile(
+          await readBinaryBody(request, maxBackgroundSize),
+          request.headers["x-background-filename"],
+        );
+        sendJson(response, 200, { ok: true, background });
+        return;
+      }
+
       sendJson(response, 404, { error: "Unknown API endpoint" });
       return;
     }
@@ -644,6 +786,12 @@ const server = createServer(async (request, response) => {
 
     if (url.pathname.startsWith("/library/")) {
       await sendLibraryAsset(url.pathname, response);
+      return;
+    }
+
+
+    if (url.pathname.startsWith("/background/")) {
+      await sendBackgroundAsset(url.pathname, response);
       return;
     }
 
@@ -666,6 +814,7 @@ server.on("error", (error) => {
 
 server.listen(port, "127.0.0.1", async () => {
   await mkdir(libraryRoot, { recursive: true });
+  await mkdir(backgroundRoot, { recursive: true });
   await writeFile(pidPath, String(process.pid), "utf8").catch(() => {});
   console.log(`Trickcal Wallpaper Controller listening on http://127.0.0.1:${port}`);
 });
